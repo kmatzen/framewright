@@ -220,11 +220,15 @@ bool VideoReader::setupScaler() {
     const int* srcCoeffs = sws_getCoefficients(srcColorspace);
     const int* dstCoeffs = sws_getCoefficients(SWS_CS_DEFAULT);
 
+    // sws_setColorspaceDetails uses 0 = limited range, 1 = full range
+    // (different from AVCOL_RANGE_MPEG=1, AVCOL_RANGE_JPEG=2)
+    int swsSrcRange = (srcRange == AVCOL_RANGE_JPEG) ? 1 : 0;
+
     int brightness = 0;
     int contrast = 1 << 16;
     int saturation = 1 << 16;
 
-    sws_setColorspaceDetails(swsCtx_, srcCoeffs, srcRange, dstCoeffs, AVCOL_RANGE_JPEG, brightness,
+    sws_setColorspaceDetails(swsCtx_, srcCoeffs, swsSrcRange, dstCoeffs, 1, brightness,
                              contrast, saturation);
 
     return true;

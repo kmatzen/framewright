@@ -19,12 +19,13 @@ int main(int argc, char** argv) {
     const int height = 1080;
     const int num_frames = 60;  // 2 seconds at 30fps
 
+    cvffmpeg::VideoWriterOptions opts;
+    opts.pix_fmt = AV_PIX_FMT_YUV420P10LE;
+    opts.is_10bit = true;
+
     cvffmpeg::VideoWriter writer;
     if (!writer.open(argv[1], AV_CODEC_ID_HEVC, width, height,
-                     {30, 1},           // 30 fps
-                     25000000,          // 25 Mbps
-                     AV_PIX_FMT_YUV420P10LE,
-                     /*is_10bit=*/true)) {
+                     {30, 1}, opts)) {
         std::cerr << "Failed to open output (is libx265 installed?)" << std::endl;
         return 1;
     }
