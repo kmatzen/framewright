@@ -37,12 +37,13 @@ while (reader.read(frame)) {
 }
 
 // Write HDR10 HEVC
+cvffmpeg::VideoWriterOptions opts;
+opts.pix_fmt = AV_PIX_FMT_YUV420P10LE;
+opts.is_10bit = true;
+
 cvffmpeg::VideoWriter writer;
 writer.open("output.mp4", AV_CODEC_ID_HEVC, 3840, 2160,
-            {60000, 1001},    // 59.94 fps
-            25000000,         // 25 Mbps
-            AV_PIX_FMT_YUV420P10LE,
-            /*is_10bit=*/true);
+            {60000, 1001}, opts);  // 59.94 fps
 writer.write(hdr_frame);  // CV_16UC3 BGR
 writer.release();
 ```
@@ -107,9 +108,20 @@ cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Quiet);    // Silence all output
 
 | Method | Description |
 |--------|-------------|
-| `open(filename, codec_id, w, h, fps, ...)` | Open output with full codec control |
+| `open(filename, codec_id, w, h, fps, opts)` | Open output with full codec control |
 | `write(frame)` | Write a BGR frame (CV_8UC3 or CV_16UC3) |
 | `release()` | Flush and finalize the file |
+
+### `cvffmpeg::VideoWriterOptions`
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `bitrate` | 25000000 | Target bitrate in bits/sec |
+| `pix_fmt` | YUV420P | Output pixel format |
+| `is_10bit` | false | HDR10 mode (BT.2020 + PQ) |
+| `full_range` | false | Full range (0-255) vs limited (16-235) |
+| `use_444` | false | 4:4:4 chroma (no subsampling) |
+| `lossless` | false | Mathematically lossless encoding |
 
 Supported codecs: H.264, H.265/HEVC (8-bit and 10-bit), FFV1 (lossless RGB).
 

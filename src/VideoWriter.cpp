@@ -60,6 +60,12 @@ VideoWriter& VideoWriter::operator=(VideoWriter&& other) noexcept {
 VideoWriter::~VideoWriter() { release(); }
 
 bool VideoWriter::open(const std::string& filename, int codec_id, int width, int height,
+                       AVRational framerate, const VideoWriterOptions& opts) {
+    return open(filename, codec_id, width, height, framerate, opts.bitrate, opts.pix_fmt,
+                opts.is_10bit, opts.full_range, opts.use_444, opts.lossless);
+}
+
+bool VideoWriter::open(const std::string& filename, int codec_id, int width, int height,
                        AVRational framerate, int bitrate, AVPixelFormat pix_fmt, bool is_10bit,
                        bool full_range, bool use_444, bool lossless) {
     if (framerate.num <= 0 || framerate.den <= 0) {
