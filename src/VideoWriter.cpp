@@ -44,7 +44,9 @@ VideoWriter::~VideoWriter() { release(); }
 bool VideoWriter::open(const std::string& filename, int codec_id, int width, int height,
                        AVRational framerate, int bitrate, AVPixelFormat pix_fmt, bool is_10bit,
                        bool full_range, bool use_444, bool lossless) {
-    open_ = true;
+    // Clean up any previously opened state (#19)
+    release();
+
     this->width_ = width;
     this->height_ = height;
     this->framerate_ = framerate;
@@ -74,6 +76,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     avformat_alloc_output_context2(&formatCtx_, nullptr, nullptr, filename.c_str());
     if (!formatCtx_) {
         std::cerr << "Failed to allocate output context." << std::endl;
+        release();
         return false;
     }
 
@@ -107,6 +110,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         codec = avcodec_find_encoder(static_cast<AVCodecID>(codec_id));
         if (!codec) {
             std::cerr << "Codec not found." << std::endl;
+            release();
             return false;
         }
     }
@@ -114,12 +118,14 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     videoStream_ = avformat_new_stream(formatCtx_, codec);
     if (!videoStream_) {
         std::cerr << "Failed to create stream." << std::endl;
+        release();
         return false;
     }
 
     codecCtx_ = avcodec_alloc_context3(codec);
     if (!codecCtx_) {
         std::cerr << "Failed to allocate codec context." << std::endl;
+        release();
         return false;
     }
 
@@ -223,6 +229,8 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                   << std::endl;
         std::cerr << "Codec: " << codec->name
                   << ", Pixel format: " << av_get_pix_fmt_name(codecCtx_->pix_fmt) << std::endl;
+        av_dict_free(&opts);
+        release();
         return false;
     }
 
@@ -239,18 +247,21 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
         if (avio_open(&formatCtx_->pb, filename.c_str(), AVIO_FLAG_WRITE) < 0) {
             std::cerr << "Failed to open output file." << std::endl;
+            release();
             return false;
         }
     }
 
     if (avformat_write_header(formatCtx_, nullptr) < 0) {
         std::cerr << "Failed to write header." << std::endl;
+        release();
         return false;
     }
 
     frame_ = av_frame_alloc();
     if (!frame_) {
         std::cerr << "Failed to allocate frame." << std::endl;
+        release();
         return false;
     }
 
@@ -260,6 +271,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 
     if (av_frame_get_buffer(frame_, 32) < 0) {
         std::cerr << "Failed to allocate frame buffer." << std::endl;
+        release();
         return false;
     }
 
@@ -275,6 +287,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 
     if (!swsCtx_) {
         std::cerr << "Failed to create swscale context." << std::endl;
+        release();
         return false;
     }
 
@@ -316,6 +329,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         }
     }
 
+    open_ = true;
     return true;
 }
 
@@ -328,6 +342,12 @@ bool VideoWriter::write(const cv::Mat& image) {
     if (image.type() != CV_8UC3 && image.type() != CV_16UC3) {
         std::cerr << "Invalid image type: " << image.type() << ". Expected CV_8UC3 or CV_16UC3."
                   << std::endl;
+        return false;
+    }
+
+    if (image.cols != width_ || image.rows != height_) {
+        std::cerr << "Frame dimensions " << image.cols << "x" << image.rows
+                  << " do not match writer dimensions " << width_ << "x" << height_ << std::endl;
         return false;
     }
 
@@ -421,34 +441,37 @@ bool VideoWriter::write(const cv::Mat& image) {
 }
 
 void VideoWriter::release() {
-    if (!open_) {
-        return;
-    }
-    flush();
-
-    if (formatCtx_) {
-        av_write_trailer(formatCtx_);
+    if (open_) {
+        flush();
+        if (formatCtx_) {
+            av_write_trailer(formatCtx_);
+        }
     }
 
     if (frame_) {
         av_frame_free(&frame_);
-    }
-
-    if (codecCtx_) {
-        avcodec_free_context(&codecCtx_);
+        frame_ = nullptr;
     }
 
     if (swsCtx_) {
         sws_freeContext(swsCtx_);
+        swsCtx_ = nullptr;
+    }
+
+    if (codecCtx_) {
+        avcodec_free_context(&codecCtx_);
+        codecCtx_ = nullptr;
     }
 
     if (formatCtx_) {
-        if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
+        if (!(formatCtx_->oformat->flags & AVFMT_NOFILE) && formatCtx_->pb) {
             avio_closep(&formatCtx_->pb);
         }
         avformat_free_context(formatCtx_);
+        formatCtx_ = nullptr;
     }
 
+    videoStream_ = nullptr;
     open_ = false;
 }
 
