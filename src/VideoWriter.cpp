@@ -331,10 +331,11 @@ bool VideoWriter::write(const cv::Mat& image) {
         return false;
     }
 
-    AVPacket packet;
-    av_init_packet(&packet);
-    packet.data = nullptr;
-    packet.size = 0;
+    AVPacket* packet = av_packet_alloc();
+    if (!packet) {
+        std::cerr << "Failed to allocate packet." << std::endl;
+        return false;
+    }
 
     bool needs_16bit_input =
         (pix_fmt_ == AV_PIX_FMT_YUV420P10LE || pix_fmt_ == AV_PIX_FMT_YUV422P10LE ||
@@ -398,7 +399,7 @@ bool VideoWriter::write(const cv::Mat& image) {
     }
 
     while (true) {
-        int receive_ret = avcodec_receive_packet(codecCtx, &packet);
+        int receive_ret = avcodec_receive_packet(codecCtx, packet);
         if (receive_ret == AVERROR(EAGAIN) || receive_ret == AVERROR_EOF) {
             break;
         } else if (receive_ret < 0) {
@@ -406,15 +407,16 @@ bool VideoWriter::write(const cv::Mat& image) {
             break;
         }
 
-        packet.stream_index = videoStream->index;
-        if (av_interleaved_write_frame(formatCtx, &packet) < 0) {
+        packet->stream_index = videoStream->index;
+        if (av_interleaved_write_frame(formatCtx, packet) < 0) {
             std::cerr << "Failed to write frame." << std::endl;
-            av_packet_unref(&packet);
+            av_packet_free(&packet);
             return false;
         }
-        av_packet_unref(&packet);
+        av_packet_unref(packet);
     }
 
+    av_packet_free(&packet);
     return true;
 }
 
@@ -455,18 +457,20 @@ void VideoWriter::flush() {
         return;
     }
 
-    AVPacket packet;
-    av_init_packet(&packet);
-    packet.data = nullptr;
-    packet.size = 0;
+    AVPacket* packet = av_packet_alloc();
+    if (!packet) {
+        std::cerr << "Failed to allocate packet for flush." << std::endl;
+        return;
+    }
 
     if (avcodec_send_frame(codecCtx, nullptr) < 0) {
         std::cerr << "Failed to send flush frame to encoder." << std::endl;
+        av_packet_free(&packet);
         return;
     }
 
     while (true) {
-        int ret = avcodec_receive_packet(codecCtx, &packet);
+        int ret = avcodec_receive_packet(codecCtx, packet);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
         } else if (ret < 0) {
@@ -474,13 +478,15 @@ void VideoWriter::flush() {
             break;
         }
 
-        packet.stream_index = videoStream->index;
-        if (av_interleaved_write_frame(formatCtx, &packet) < 0) {
+        packet->stream_index = videoStream->index;
+        if (av_interleaved_write_frame(formatCtx, packet) < 0) {
             std::cerr << "Failed to write flush packet." << std::endl;
         }
 
-        av_packet_unref(&packet);
+        av_packet_unref(packet);
     }
+
+    av_packet_free(&packet);
 }
 
 double VideoWriter::getCurrentTimestamp() const {
