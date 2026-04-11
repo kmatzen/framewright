@@ -3,6 +3,7 @@
 #include "cvffmpeg/LogLevel.h"
 
 #include <cstddef>
+#include <cstdio>
 
 namespace cvffmpeg {
 
@@ -13,7 +14,8 @@ VideoWriter::VideoWriter(VideoWriter&& other) noexcept
       swsCtx_(other.swsCtx_), frame_(other.frame_), width_(other.width_), height_(other.height_),
       framerate_(other.framerate_), pts_(other.pts_), open_(other.open_),
       is_10bit_(other.is_10bit_), full_range_(other.full_range_), use_444_(other.use_444_),
-      pix_fmt_(other.pix_fmt_), codec_id_(other.codec_id_) {
+      pix_fmt_(other.pix_fmt_), codec_id_(other.codec_id_),
+      hdr10_metadata_(other.hdr10_metadata_) {
     av_log_set_level(AV_LOG_QUIET);
 
     other.formatCtx_ = nullptr;
@@ -43,6 +45,7 @@ VideoWriter& VideoWriter::operator=(VideoWriter&& other) noexcept {
         use_444_ = other.use_444_;
         pix_fmt_ = other.pix_fmt_;
         codec_id_ = other.codec_id_;
+        hdr10_metadata_ = other.hdr10_metadata_;
 
         other.formatCtx_ = nullptr;
         other.codecCtx_ = nullptr;
@@ -197,15 +200,22 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         detail::log(LogLevel::Info) << "FFV1 lossless encoding (RGB, no YUV conversion)" << std::endl;
     } else if (is_10bit && codec_id == AV_CODEC_ID_HEVC && using_libx265) {
         av_dict_set(&opts, "preset", "medium", 0);
-        av_dict_set(
-            &opts, "x265-params",
-            "profile=main10:"
-            "colorprim=bt2020:"
-            "transfer=smpte2084:"
-            "colormatrix=bt2020nc:"
-            "master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,1):"
-            "max-cll=1000,400",
-            0);
+        const auto& m = hdr10_metadata_;
+        char x265_hdr_params[512];
+        snprintf(x265_hdr_params, sizeof(x265_hdr_params),
+                 "profile=main10:"
+                 "colorprim=bt2020:"
+                 "transfer=smpte2084:"
+                 "colormatrix=bt2020nc:"
+                 "master-display=G(%d,%d)B(%d,%d)R(%d,%d)WP(%d,%d)L(%d,%d):"
+                 "max-cll=%u,%u",
+                 static_cast<int>(m.green_x * 50000), static_cast<int>(m.green_y * 50000),
+                 static_cast<int>(m.blue_x * 50000), static_cast<int>(m.blue_y * 50000),
+                 static_cast<int>(m.red_x * 50000), static_cast<int>(m.red_y * 50000),
+                 static_cast<int>(m.white_x * 50000), static_cast<int>(m.white_y * 50000),
+                 static_cast<int>(m.max_luminance * 10000), static_cast<int>(m.min_luminance * 10000),
+                 m.max_cll, m.max_fall);
+        av_dict_set(&opts, "x265-params", x265_hdr_params, 0);
     } else if (is_10bit_pix_fmt_early && codec_id == AV_CODEC_ID_HEVC && using_libx265) {
         av_dict_set(&opts, "preset", "medium", 0);
 
@@ -406,26 +416,28 @@ bool VideoWriter::write(const cv::Mat& image) {
         av_frame_remove_side_data(frame_, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
         av_frame_remove_side_data(frame_, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
 
+        const auto& m = hdr10_metadata_;
+
         AVMasteringDisplayMetadata* mdcv = av_mastering_display_metadata_create_side_data(frame_);
         if (mdcv) {
-            mdcv->display_primaries[0][0] = av_make_q(35400, 50000);
-            mdcv->display_primaries[0][1] = av_make_q(14600, 50000);
-            mdcv->display_primaries[1][0] = av_make_q(8500, 50000);
-            mdcv->display_primaries[1][1] = av_make_q(39850, 50000);
-            mdcv->display_primaries[2][0] = av_make_q(6550, 50000);
-            mdcv->display_primaries[2][1] = av_make_q(2300, 50000);
-            mdcv->white_point[0] = av_make_q(15635, 50000);
-            mdcv->white_point[1] = av_make_q(16450, 50000);
-            mdcv->max_luminance = av_make_q(10000000, 10000);
-            mdcv->min_luminance = av_make_q(1, 10000);
+            mdcv->display_primaries[0][0] = av_make_q(static_cast<int>(m.red_x * 50000), 50000);
+            mdcv->display_primaries[0][1] = av_make_q(static_cast<int>(m.red_y * 50000), 50000);
+            mdcv->display_primaries[1][0] = av_make_q(static_cast<int>(m.green_x * 50000), 50000);
+            mdcv->display_primaries[1][1] = av_make_q(static_cast<int>(m.green_y * 50000), 50000);
+            mdcv->display_primaries[2][0] = av_make_q(static_cast<int>(m.blue_x * 50000), 50000);
+            mdcv->display_primaries[2][1] = av_make_q(static_cast<int>(m.blue_y * 50000), 50000);
+            mdcv->white_point[0] = av_make_q(static_cast<int>(m.white_x * 50000), 50000);
+            mdcv->white_point[1] = av_make_q(static_cast<int>(m.white_y * 50000), 50000);
+            mdcv->max_luminance = av_make_q(static_cast<int>(m.max_luminance * 10000), 10000);
+            mdcv->min_luminance = av_make_q(static_cast<int>(m.min_luminance * 10000), 10000);
             mdcv->has_primaries = 1;
             mdcv->has_luminance = 1;
         }
 
         AVContentLightMetadata* clli = av_content_light_metadata_create_side_data(frame_);
         if (clli) {
-            clli->MaxCLL = 1000;
-            clli->MaxFALL = 400;
+            clli->MaxCLL = m.max_cll;
+            clli->MaxFALL = m.max_fall;
         }
     }
 
@@ -530,6 +542,10 @@ void VideoWriter::flush() {
     }
 
     av_packet_free(&packet);
+}
+
+void VideoWriter::setHDR10Metadata(const HDR10Metadata& metadata) {
+    hdr10_metadata_ = metadata;
 }
 
 double VideoWriter::getCurrentTimestamp() const {
