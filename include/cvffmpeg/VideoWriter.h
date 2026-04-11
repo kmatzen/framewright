@@ -13,6 +13,18 @@ extern "C" {
 
 namespace cvffmpeg {
 
+/// HDR10 static metadata for mastering display and content light level.
+struct HDR10Metadata {
+    double red_x = 0.708, red_y = 0.292;
+    double green_x = 0.170, green_y = 0.797;
+    double blue_x = 0.131, blue_y = 0.046;
+    double white_x = 0.3127, white_y = 0.3290;
+    double max_luminance = 1000.0;
+    double min_luminance = 0.0001;
+    unsigned int max_cll = 1000;
+    unsigned int max_fall = 400;
+};
+
 /// Video writer with explicit color space control and HDR10 support.
 ///
 /// Unlike cv::VideoWriter, this class gives you direct control over:
@@ -60,6 +72,9 @@ class VideoWriter {
     /// Flush buffered encoder packets without finalizing.
     void flush();
 
+    void setHDR10Metadata(const HDR10Metadata& metadata);
+    const HDR10Metadata& getHDR10Metadata() const { return hdr10_metadata_; }
+
     /// Get the current timestamp in seconds.
     double getCurrentTimestamp() const;
 
@@ -79,6 +94,7 @@ class VideoWriter {
     bool use_444_ = false;
     AVPixelFormat pix_fmt_ = AV_PIX_FMT_YUV420P;
     int codec_id_ = 0;
+    HDR10Metadata hdr10_metadata_;
 };
 
 } // namespace cvffmpeg
