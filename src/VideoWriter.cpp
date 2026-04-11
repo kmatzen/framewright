@@ -7,36 +7,50 @@ namespace cvffmpeg {
 
 VideoWriter::VideoWriter() { av_log_set_level(AV_LOG_QUIET); }
 
-VideoWriter::VideoWriter(VideoWriter&& other) {
-    formatCtx_ = other.formatCtx_;
-    codecCtx_ = other.codecCtx_;
-    videoStream_ = other.videoStream_;
-    swsCtx_ = other.swsCtx_;
-    frame_ = other.frame_;
-    width_ = other.width_;
-    height_ = other.height_;
-    framerate_ = other.framerate_;
-    pts_ = other.pts_;
-    open_ = other.open_;
-    is_10bit_ = other.is_10bit_;
-    full_range_ = other.full_range_;
-    use_444_ = other.use_444_;
-    pix_fmt_ = other.pix_fmt_;
-    codec_id_ = other.codec_id_;
+VideoWriter::VideoWriter(VideoWriter&& other) noexcept
+    : formatCtx_(other.formatCtx_), codecCtx_(other.codecCtx_), videoStream_(other.videoStream_),
+      swsCtx_(other.swsCtx_), frame_(other.frame_), width_(other.width_), height_(other.height_),
+      framerate_(other.framerate_), pts_(other.pts_), open_(other.open_),
+      is_10bit_(other.is_10bit_), full_range_(other.full_range_), use_444_(other.use_444_),
+      pix_fmt_(other.pix_fmt_), codec_id_(other.codec_id_) {
+    av_log_set_level(AV_LOG_QUIET);
 
     other.formatCtx_ = nullptr;
     other.codecCtx_ = nullptr;
     other.videoStream_ = nullptr;
     other.swsCtx_ = nullptr;
     other.frame_ = nullptr;
-    other.width_ = 0;
-    other.height_ = 0;
-    other.framerate_ = AVRational{1, 30};
-    other.pts_ = 0;
     other.open_ = false;
-    other.is_10bit_ = false;
-    other.full_range_ = false;
-    other.use_444_ = false;
+}
+
+VideoWriter& VideoWriter::operator=(VideoWriter&& other) noexcept {
+    if (this != &other) {
+        release();
+
+        formatCtx_ = other.formatCtx_;
+        codecCtx_ = other.codecCtx_;
+        videoStream_ = other.videoStream_;
+        swsCtx_ = other.swsCtx_;
+        frame_ = other.frame_;
+        width_ = other.width_;
+        height_ = other.height_;
+        framerate_ = other.framerate_;
+        pts_ = other.pts_;
+        open_ = other.open_;
+        is_10bit_ = other.is_10bit_;
+        full_range_ = other.full_range_;
+        use_444_ = other.use_444_;
+        pix_fmt_ = other.pix_fmt_;
+        codec_id_ = other.codec_id_;
+
+        other.formatCtx_ = nullptr;
+        other.codecCtx_ = nullptr;
+        other.videoStream_ = nullptr;
+        other.swsCtx_ = nullptr;
+        other.frame_ = nullptr;
+        other.open_ = false;
+    }
+    return *this;
 }
 
 VideoWriter::~VideoWriter() { release(); }
