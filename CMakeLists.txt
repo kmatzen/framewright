@@ -12,9 +12,14 @@ option(CVFFMPEG_BUILD_EXAMPLES "Build example programs" OFF)
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-find_package(OpenCV REQUIRED)
+find_package(OpenCV 4.0 REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libswscale libavutil)
+pkg_check_modules(FFMPEG REQUIRED
+    libavformat>=58.29   # FFmpeg 4.2+
+    libavcodec>=58.54
+    libswscale>=5.5
+    libavutil>=56.31
+)
 
 # Create an imported target for FFmpeg (PkgConfig doesn't always do this cleanly)
 add_library(cvffmpeg_ffmpeg INTERFACE IMPORTED)

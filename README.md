@@ -74,8 +74,8 @@ make -j$(nproc)
 ### Requirements
 
 - C++17 compiler
-- OpenCV 4.x
-- FFmpeg libraries (libavformat, libavcodec, libswscale, libavutil)
+- OpenCV 4.0+
+- FFmpeg 4.2+ (libavformat, libavcodec, libswscale, libavutil)
 
 ## API
 
