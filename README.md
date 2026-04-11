@@ -77,6 +77,19 @@ make -j$(nproc)
 - OpenCV 4.0+
 - FFmpeg 4.2+ (libavformat, libavcodec, libswscale, libavutil)
 
+## Logging
+
+By default, cvffmpeg only logs errors. To see informational output (codec details, color space decisions):
+
+```cpp
+#include <cvffmpeg/LogLevel.h>
+
+cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Info);     // See everything
+cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Warning);  // Errors + warnings
+cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Error);    // Errors only (default)
+cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Quiet);    // Silence all output
+```
+
 ## API
 
 ### `cvffmpeg::VideoReader`
