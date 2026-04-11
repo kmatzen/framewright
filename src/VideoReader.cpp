@@ -14,7 +14,7 @@ VideoReader::VideoReader(VideoReader&& other) noexcept
       videoStreamIndex_(other.videoStreamIndex_), width_(other.width_), height_(other.height_),
       fps_(other.fps_), frame_count_(other.frame_count_), current_frame_(other.current_frame_),
       current_timestamp_(other.current_timestamp_),
-      frame_pts_cache_(std::move(other.frame_pts_cache_)), force_bt709_(other.force_bt709_),
+      force_bt709_(other.force_bt709_),
       force_full_range_(other.force_full_range_) {
     other.formatCtx_ = nullptr;
     other.codecCtx_ = nullptr;
@@ -40,7 +40,6 @@ VideoReader& VideoReader::operator=(VideoReader&& other) noexcept {
         frame_count_ = other.frame_count_;
         current_frame_ = other.current_frame_;
         current_timestamp_ = other.current_timestamp_;
-        frame_pts_cache_ = std::move(other.frame_pts_cache_);
         force_bt709_ = other.force_bt709_;
         force_full_range_ = other.force_full_range_;
 
@@ -178,8 +177,6 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
     }
 
     current_frame_ = 0;
-    frame_pts_cache_.clear();
-    frame_pts_cache_.reserve(10000);
 
     return true;
 }
@@ -263,9 +260,6 @@ bool VideoReader::read(cv::Mat& frame) {
             if (frame_->pts != AV_NOPTS_VALUE) {
                 AVStream* stream = formatCtx_->streams[videoStreamIndex_];
                 current_timestamp_ = frame_->pts * av_q2d(stream->time_base);
-                frame_pts_cache_.push_back(frame_->pts);
-            } else {
-                frame_pts_cache_.push_back(AV_NOPTS_VALUE);
             }
 
             current_frame_++;
@@ -305,9 +299,6 @@ bool VideoReader::read(cv::Mat& frame) {
         if (frame_->pts != AV_NOPTS_VALUE) {
             AVStream* stream = formatCtx_->streams[videoStreamIndex_];
             current_timestamp_ = frame_->pts * av_q2d(stream->time_base);
-            frame_pts_cache_.push_back(frame_->pts);
-        } else {
-            frame_pts_cache_.push_back(AV_NOPTS_VALUE);
         }
 
         current_frame_++;
@@ -387,7 +378,6 @@ void VideoReader::cleanup() {
     frame_count_ = 0;
     current_frame_ = 0;
     current_timestamp_ = 0.0;
-    frame_pts_cache_.clear();
 }
 
 AVColorSpace VideoReader::getColorSpace() const {
