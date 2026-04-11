@@ -8,11 +8,11 @@ namespace cvffmpeg {
 VideoWriter::VideoWriter() { av_log_set_level(AV_LOG_QUIET); }
 
 VideoWriter::VideoWriter(VideoWriter&& other) {
-    formatCtx = other.formatCtx;
-    codecCtx = other.codecCtx;
-    videoStream = other.videoStream;
-    swsCtx = other.swsCtx;
-    frame = other.frame;
+    formatCtx_ = other.formatCtx_;
+    codecCtx_ = other.codecCtx_;
+    videoStream_ = other.videoStream_;
+    swsCtx_ = other.swsCtx_;
+    frame_ = other.frame_;
     width_ = other.width_;
     height_ = other.height_;
     framerate_ = other.framerate_;
@@ -24,11 +24,11 @@ VideoWriter::VideoWriter(VideoWriter&& other) {
     pix_fmt_ = other.pix_fmt_;
     codec_id_ = other.codec_id_;
 
-    other.formatCtx = nullptr;
-    other.codecCtx = nullptr;
-    other.videoStream = nullptr;
-    other.swsCtx = nullptr;
-    other.frame = nullptr;
+    other.formatCtx_ = nullptr;
+    other.codecCtx_ = nullptr;
+    other.videoStream_ = nullptr;
+    other.swsCtx_ = nullptr;
+    other.frame_ = nullptr;
     other.width_ = 0;
     other.height_ = 0;
     other.framerate_ = AVRational{1, 30};
@@ -71,8 +71,8 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                   << std::endl;
     }
 
-    avformat_alloc_output_context2(&formatCtx, nullptr, nullptr, filename.c_str());
-    if (!formatCtx) {
+    avformat_alloc_output_context2(&formatCtx_, nullptr, nullptr, filename.c_str());
+    if (!formatCtx_) {
         std::cerr << "Failed to allocate output context." << std::endl;
         return false;
     }
@@ -111,43 +111,43 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         }
     }
 
-    videoStream = avformat_new_stream(formatCtx, codec);
-    if (!videoStream) {
+    videoStream_ = avformat_new_stream(formatCtx_, codec);
+    if (!videoStream_) {
         std::cerr << "Failed to create stream." << std::endl;
         return false;
     }
 
-    codecCtx = avcodec_alloc_context3(codec);
-    if (!codecCtx) {
+    codecCtx_ = avcodec_alloc_context3(codec);
+    if (!codecCtx_) {
         std::cerr << "Failed to allocate codec context." << std::endl;
         return false;
     }
 
-    codecCtx->codec_id = static_cast<AVCodecID>(codec_id);
-    codecCtx->codec_type = AVMEDIA_TYPE_VIDEO;
-    codecCtx->pix_fmt = pix_fmt;
+    codecCtx_->codec_id = static_cast<AVCodecID>(codec_id);
+    codecCtx_->codec_type = AVMEDIA_TYPE_VIDEO;
+    codecCtx_->pix_fmt = pix_fmt;
 
-    codecCtx->width = width;
-    codecCtx->height = height;
-    codecCtx->bit_rate = bitrate;
+    codecCtx_->width = width;
+    codecCtx_->height = height;
+    codecCtx_->bit_rate = bitrate;
     std::cerr << "framerate: " << framerate.num << " / " << framerate.den << std::endl;
-    videoStream->time_base = AVRational{framerate.den, framerate.num};
-    codecCtx->time_base = videoStream->time_base;
-    videoStream->r_frame_rate = framerate;
-    codecCtx->framerate = framerate;
-    codecCtx->gop_size = 12;
-    codecCtx->max_b_frames = 0;
+    videoStream_->time_base = AVRational{framerate.den, framerate.num};
+    codecCtx_->time_base = videoStream_->time_base;
+    videoStream_->r_frame_rate = framerate;
+    codecCtx_->framerate = framerate;
+    codecCtx_->gop_size = 12;
+    codecCtx_->max_b_frames = 0;
 
     if (is_10bit) {
-        codecCtx->color_primaries = AVCOL_PRI_BT2020;
-        codecCtx->color_trc = AVCOL_TRC_SMPTE2084;
-        codecCtx->colorspace = AVCOL_SPC_BT2020_NCL;
-        codecCtx->color_range = AVCOL_RANGE_MPEG;
+        codecCtx_->color_primaries = AVCOL_PRI_BT2020;
+        codecCtx_->color_trc = AVCOL_TRC_SMPTE2084;
+        codecCtx_->colorspace = AVCOL_SPC_BT2020_NCL;
+        codecCtx_->color_range = AVCOL_RANGE_MPEG;
     } else {
-        codecCtx->color_primaries = AVCOL_PRI_BT709;
-        codecCtx->color_trc = AVCOL_TRC_BT709;
-        codecCtx->colorspace = AVCOL_SPC_BT709;
-        codecCtx->color_range = full_range_ ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
+        codecCtx_->color_primaries = AVCOL_PRI_BT709;
+        codecCtx_->color_trc = AVCOL_TRC_BT709;
+        codecCtx_->colorspace = AVCOL_SPC_BT709;
+        codecCtx_->color_range = full_range_ ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
 
         if (is_10bit_pix_fmt_early) {
             std::cerr << "Using 10-bit SDR (BT.709, higher precision for intermediates)"
@@ -155,8 +155,8 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         }
     }
 
-    if (formatCtx->oformat->flags & AVFMT_GLOBALHEADER) {
-        codecCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    if (formatCtx_->oformat->flags & AVFMT_GLOBALHEADER) {
+        codecCtx_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
 
     AVDictionary* opts = nullptr;
@@ -215,65 +215,65 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         }
     }
 
-    int ret = avcodec_open2(codecCtx, codec, &opts);
+    int ret = avcodec_open2(codecCtx_, codec, &opts);
     if (ret < 0) {
         char errbuf[AV_ERROR_MAX_STRING_SIZE];
         av_strerror(ret, errbuf, sizeof(errbuf));
         std::cerr << "Failed to open codec: " << errbuf << " (error code: " << ret << ")"
                   << std::endl;
         std::cerr << "Codec: " << codec->name
-                  << ", Pixel format: " << av_get_pix_fmt_name(codecCtx->pix_fmt) << std::endl;
+                  << ", Pixel format: " << av_get_pix_fmt_name(codecCtx_->pix_fmt) << std::endl;
         return false;
     }
 
     av_dict_free(&opts);
 
-    avcodec_parameters_from_context(videoStream->codecpar, codecCtx);
+    avcodec_parameters_from_context(videoStream_->codecpar, codecCtx_);
 
     // Set codec tag to 'hvc1' for QuickTime compatibility
     if (codec_id == AV_CODEC_ID_HEVC) {
-        videoStream->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
+        videoStream_->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
         std::cerr << "Set codec tag to hvc1 for QuickTime compatibility" << std::endl;
     }
 
-    if (!(formatCtx->oformat->flags & AVFMT_NOFILE)) {
-        if (avio_open(&formatCtx->pb, filename.c_str(), AVIO_FLAG_WRITE) < 0) {
+    if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
+        if (avio_open(&formatCtx_->pb, filename.c_str(), AVIO_FLAG_WRITE) < 0) {
             std::cerr << "Failed to open output file." << std::endl;
             return false;
         }
     }
 
-    if (avformat_write_header(formatCtx, nullptr) < 0) {
+    if (avformat_write_header(formatCtx_, nullptr) < 0) {
         std::cerr << "Failed to write header." << std::endl;
         return false;
     }
 
-    frame = av_frame_alloc();
-    if (!frame) {
+    frame_ = av_frame_alloc();
+    if (!frame_) {
         std::cerr << "Failed to allocate frame." << std::endl;
         return false;
     }
 
-    frame->format = codecCtx->pix_fmt;
-    frame->width = codecCtx->width;
-    frame->height = codecCtx->height;
+    frame_->format = codecCtx_->pix_fmt;
+    frame_->width = codecCtx_->width;
+    frame_->height = codecCtx_->height;
 
-    if (av_frame_get_buffer(frame, 32) < 0) {
+    if (av_frame_get_buffer(frame_, 32) < 0) {
         std::cerr << "Failed to allocate frame buffer." << std::endl;
         return false;
     }
 
     bool needs_16bit_input =
         (pix_fmt == AV_PIX_FMT_YUV420P10LE || pix_fmt == AV_PIX_FMT_YUV422P10LE ||
-         pix_fmt == AV_PIX_FMT_YUV444P10LE || codecCtx->pix_fmt == AV_PIX_FMT_YUV420P10LE ||
-         codecCtx->pix_fmt == AV_PIX_FMT_YUV422P10LE ||
-         codecCtx->pix_fmt == AV_PIX_FMT_YUV444P10LE);
+         pix_fmt == AV_PIX_FMT_YUV444P10LE || codecCtx_->pix_fmt == AV_PIX_FMT_YUV420P10LE ||
+         codecCtx_->pix_fmt == AV_PIX_FMT_YUV422P10LE ||
+         codecCtx_->pix_fmt == AV_PIX_FMT_YUV444P10LE);
     AVPixelFormat input_format = needs_16bit_input ? AV_PIX_FMT_BGR48LE : AV_PIX_FMT_BGR24;
 
-    swsCtx = sws_getContext(width, height, input_format, width, height, codecCtx->pix_fmt,
+    swsCtx_ = sws_getContext(width, height, input_format, width, height, codecCtx_->pix_fmt,
                             SWS_LANCZOS, nullptr, nullptr, nullptr);
 
-    if (!swsCtx) {
+    if (!swsCtx_) {
         std::cerr << "Failed to create swscale context." << std::endl;
         return false;
     }
@@ -286,12 +286,12 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         int* table = nullptr;
         int srcRange, dstRange, brightness, contrast, saturation;
 
-        int ret = sws_getColorspaceDetails(swsCtx, &inv_table, &srcRange, &table, &dstRange,
+        int ret = sws_getColorspaceDetails(swsCtx_, &inv_table, &srcRange, &table, &dstRange,
                                            &brightness, &contrast, &saturation);
         if (ret >= 0) {
             const int* src_coeff = sws_getCoefficients(SWS_CS_BT2020);
             const int* dst_coeff = sws_getCoefficients(SWS_CS_BT2020);
-            sws_setColorspaceDetails(swsCtx, src_coeff, 1, dst_coeff, 0, brightness, contrast,
+            sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, 0, brightness, contrast,
                                      saturation);
             std::cerr << "Configured swscale for BT.2020 HDR colorspace" << std::endl;
         } else {
@@ -303,13 +303,13 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         int* table = nullptr;
         int srcRange, dstRange, brightness, contrast, saturation;
 
-        int ret = sws_getColorspaceDetails(swsCtx, &inv_table, &srcRange, &table, &dstRange,
+        int ret = sws_getColorspaceDetails(swsCtx_, &inv_table, &srcRange, &table, &dstRange,
                                            &brightness, &contrast, &saturation);
         if (ret >= 0) {
             const int* src_coeff = sws_getCoefficients(SWS_CS_ITU709);
             const int* dst_coeff = sws_getCoefficients(SWS_CS_ITU709);
             int dst_range = full_range_ ? 1 : 0;
-            sws_setColorspaceDetails(swsCtx, src_coeff, 1, dst_coeff, dst_range, brightness,
+            sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, dst_range, brightness,
                                      contrast, saturation);
             std::cerr << "Configured swscale for BT.709 SDR colorspace ("
                       << (full_range_ ? "full" : "limited") << " range)" << std::endl;
@@ -339,9 +339,9 @@ bool VideoWriter::write(const cv::Mat& image) {
 
     bool needs_16bit_input =
         (pix_fmt_ == AV_PIX_FMT_YUV420P10LE || pix_fmt_ == AV_PIX_FMT_YUV422P10LE ||
-         pix_fmt_ == AV_PIX_FMT_YUV444P10LE || codecCtx->pix_fmt == AV_PIX_FMT_YUV420P10LE ||
-         codecCtx->pix_fmt == AV_PIX_FMT_YUV422P10LE ||
-         codecCtx->pix_fmt == AV_PIX_FMT_YUV444P10LE);
+         pix_fmt_ == AV_PIX_FMT_YUV444P10LE || codecCtx_->pix_fmt == AV_PIX_FMT_YUV420P10LE ||
+         codecCtx_->pix_fmt == AV_PIX_FMT_YUV422P10LE ||
+         codecCtx_->pix_fmt == AV_PIX_FMT_YUV444P10LE);
 
     cv::Mat input_image;
     if (needs_16bit_input && image.type() == CV_8UC3) {
@@ -355,7 +355,7 @@ bool VideoWriter::write(const cv::Mat& image) {
     const uint8_t* srcSlice[1] = {input_image.data};
     int srcStride[1] = {static_cast<int>(input_image.step)};
 
-    int ret = sws_scale(swsCtx, srcSlice, srcStride, 0, height_, frame->data, frame->linesize);
+    int ret = sws_scale(swsCtx_, srcSlice, srcStride, 0, height_, frame_->data, frame_->linesize);
     if (ret < 0) {
         std::cerr << "sws_scale failed with error: " << ret << std::endl;
         return false;
@@ -363,10 +363,10 @@ bool VideoWriter::write(const cv::Mat& image) {
 
     // Attach HDR10 static metadata for 10-bit HDR
     if (is_10bit_) {
-        av_frame_remove_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
-        av_frame_remove_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+        av_frame_remove_side_data(frame_, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+        av_frame_remove_side_data(frame_, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
 
-        AVMasteringDisplayMetadata* mdcv = av_mastering_display_metadata_create_side_data(frame);
+        AVMasteringDisplayMetadata* mdcv = av_mastering_display_metadata_create_side_data(frame_);
         if (mdcv) {
             mdcv->display_primaries[0][0] = av_make_q(35400, 50000);
             mdcv->display_primaries[0][1] = av_make_q(14600, 50000);
@@ -382,24 +382,24 @@ bool VideoWriter::write(const cv::Mat& image) {
             mdcv->has_luminance = 1;
         }
 
-        AVContentLightMetadata* clli = av_content_light_metadata_create_side_data(frame);
+        AVContentLightMetadata* clli = av_content_light_metadata_create_side_data(frame_);
         if (clli) {
             clli->MaxCLL = 1000;
             clli->MaxFALL = 400;
         }
     }
 
-    frame->pts = av_rescale_q(pts_, {framerate_.den, framerate_.num}, codecCtx->time_base);
+    frame_->pts = av_rescale_q(pts_, {framerate_.den, framerate_.num}, codecCtx_->time_base);
     pts_ += framerate_.den;
 
-    int send_ret = avcodec_send_frame(codecCtx, frame);
+    int send_ret = avcodec_send_frame(codecCtx_, frame_);
     if (send_ret < 0) {
         std::cerr << "Failed to send frame to encoder. Error code: " << send_ret << std::endl;
         return false;
     }
 
     while (true) {
-        int receive_ret = avcodec_receive_packet(codecCtx, packet);
+        int receive_ret = avcodec_receive_packet(codecCtx_, packet);
         if (receive_ret == AVERROR(EAGAIN) || receive_ret == AVERROR_EOF) {
             break;
         } else if (receive_ret < 0) {
@@ -407,8 +407,8 @@ bool VideoWriter::write(const cv::Mat& image) {
             break;
         }
 
-        packet->stream_index = videoStream->index;
-        if (av_interleaved_write_frame(formatCtx, packet) < 0) {
+        packet->stream_index = videoStream_->index;
+        if (av_interleaved_write_frame(formatCtx_, packet) < 0) {
             std::cerr << "Failed to write frame." << std::endl;
             av_packet_free(&packet);
             return false;
@@ -426,27 +426,27 @@ void VideoWriter::release() {
     }
     flush();
 
-    if (formatCtx) {
-        av_write_trailer(formatCtx);
+    if (formatCtx_) {
+        av_write_trailer(formatCtx_);
     }
 
-    if (frame) {
-        av_frame_free(&frame);
+    if (frame_) {
+        av_frame_free(&frame_);
     }
 
-    if (codecCtx) {
-        avcodec_free_context(&codecCtx);
+    if (codecCtx_) {
+        avcodec_free_context(&codecCtx_);
     }
 
-    if (swsCtx) {
-        sws_freeContext(swsCtx);
+    if (swsCtx_) {
+        sws_freeContext(swsCtx_);
     }
 
-    if (formatCtx) {
-        if (!(formatCtx->oformat->flags & AVFMT_NOFILE)) {
-            avio_closep(&formatCtx->pb);
+    if (formatCtx_) {
+        if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
+            avio_closep(&formatCtx_->pb);
         }
-        avformat_free_context(formatCtx);
+        avformat_free_context(formatCtx_);
     }
 
     open_ = false;
@@ -463,14 +463,14 @@ void VideoWriter::flush() {
         return;
     }
 
-    if (avcodec_send_frame(codecCtx, nullptr) < 0) {
+    if (avcodec_send_frame(codecCtx_, nullptr) < 0) {
         std::cerr << "Failed to send flush frame to encoder." << std::endl;
         av_packet_free(&packet);
         return;
     }
 
     while (true) {
-        int ret = avcodec_receive_packet(codecCtx, packet);
+        int ret = avcodec_receive_packet(codecCtx_, packet);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
         } else if (ret < 0) {
@@ -478,8 +478,8 @@ void VideoWriter::flush() {
             break;
         }
 
-        packet->stream_index = videoStream->index;
-        if (av_interleaved_write_frame(formatCtx, packet) < 0) {
+        packet->stream_index = videoStream_->index;
+        if (av_interleaved_write_frame(formatCtx_, packet) < 0) {
             std::cerr << "Failed to write flush packet." << std::endl;
         }
 
