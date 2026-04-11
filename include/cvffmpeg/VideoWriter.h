@@ -31,7 +31,8 @@ class VideoWriter {
     VideoWriter& operator=(const VideoWriter&) = delete;
 
     // Movable
-    VideoWriter(VideoWriter&& other);
+    VideoWriter(VideoWriter&& other) noexcept;
+    VideoWriter& operator=(VideoWriter&& other) noexcept;
 
     /// Open an output file for writing.
     /// @param filename   Output path (extension determines container).
