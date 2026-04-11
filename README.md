@@ -99,7 +99,7 @@ cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Quiet);    // Silence all output
 |--------|-------------|
 | `open(filename, force_bt709, force_full_range)` | Open a video file with optional color space overrides |
 | `read(frame)` | Read the next frame as BGR `cv::Mat` |
-| `seek(frame_number)` | Seek forward to a frame (forward-only) |
+| `seek(frame_number)` | Seek to a frame (forward and backward) |
 | `getColorSpace()` | Get the file's declared color space |
 | `getColorRange()` | Get the file's declared range |
 | `getFPS()`, `getWidth()`, `getHeight()` | Video properties |
