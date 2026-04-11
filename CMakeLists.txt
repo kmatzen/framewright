@@ -52,6 +52,7 @@ target_link_libraries(cvffmpeg_ffmpeg INTERFACE ${_other_flags} ${_framework_fla
 # Library
 # ------------------------------------------------------------------------------
 add_library(cvffmpeg
+    src/LogLevel.cpp
     src/VideoReader.cpp
     src/VideoWriter.cpp
 )
