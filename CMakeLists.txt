@@ -82,6 +82,15 @@ set_target_properties(cvffmpeg PROPERTIES
 if(CVFFMPEG_BUILD_EXAMPLES)
     add_executable(compare_readers examples/compare_readers.cpp)
     target_link_libraries(compare_readers PRIVATE cvffmpeg)
+
+    add_executable(basic_read examples/basic_read.cpp)
+    target_link_libraries(basic_read PRIVATE cvffmpeg)
+
+    add_executable(basic_write examples/basic_write.cpp)
+    target_link_libraries(basic_write PRIVATE cvffmpeg)
+
+    add_executable(hdr_write examples/hdr_write.cpp)
+    target_link_libraries(hdr_write PRIVATE cvffmpeg)
 endif()
 
 # ------------------------------------------------------------------------------
