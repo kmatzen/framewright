@@ -44,6 +44,11 @@ VideoWriter::~VideoWriter() { release(); }
 bool VideoWriter::open(const std::string& filename, int codec_id, int width, int height,
                        AVRational framerate, int bitrate, AVPixelFormat pix_fmt, bool is_10bit,
                        bool full_range, bool use_444, bool lossless) {
+    if (framerate.num <= 0 || framerate.den <= 0) {
+        std::cerr << "Invalid framerate: " << framerate.num << "/" << framerate.den << std::endl;
+        return false;
+    }
+
     // Clean up any previously opened state (#19)
     release();
 

@@ -2,7 +2,6 @@
 
 #include <opencv2/opencv.hpp>
 #include <string>
-#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -82,8 +81,6 @@ class VideoReader {
     int64_t frame_count_ = 0;
     int64_t current_frame_ = 0;
     double current_timestamp_ = 0.0;
-
-    std::vector<int64_t> frame_pts_cache_;
 
     bool force_bt709_ = false;
     bool force_full_range_ = false;
