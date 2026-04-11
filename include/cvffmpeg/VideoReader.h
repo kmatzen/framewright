@@ -41,7 +41,7 @@ class VideoReader {
     /// Read the next frame as a BGR cv::Mat (same convention as OpenCV).
     bool read(cv::Mat& frame);
 
-    /// Seek forward to a specific frame number (forward-only, best effort).
+    /// Seek to a specific frame number (forward and backward, best effort).
     bool seek(int64_t frame_number);
 
     void close();
