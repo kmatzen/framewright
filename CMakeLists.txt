@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Options
 # ------------------------------------------------------------------------------
 option(CVFFMPEG_BUILD_EXAMPLES "Build example programs" OFF)
+option(CVFFMPEG_BUILD_TESTS "Build tests" OFF)
 
 # ------------------------------------------------------------------------------
 # Dependencies
@@ -83,6 +84,100 @@ set_target_properties(cvffmpeg PROPERTIES
 if(CVFFMPEG_BUILD_EXAMPLES)
     add_executable(compare_readers examples/compare_readers.cpp)
     target_link_libraries(compare_readers PRIVATE cvffmpeg)
+endif()
+
+# ------------------------------------------------------------------------------
+# Tests
+# ------------------------------------------------------------------------------
+if(CVFFMPEG_BUILD_TESTS)
+    enable_testing()
+
+    include(FetchContent)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.8.0
+    )
+    FetchContent_MakeAvailable(Catch2)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+
+    # Generate test fixture videos at configure time
+    find_program(FFMPEG_EXECUTABLE ffmpeg)
+    find_program(FFPROBE_EXECUTABLE ffprobe)
+
+    if(FFMPEG_EXECUTABLE)
+        set(TEST_FIXTURES_DIR "${CMAKE_CURRENT_BINARY_DIR}/test_fixtures")
+        file(MAKE_DIRECTORY ${TEST_FIXTURES_DIR})
+
+        # 8-bit BT.709 limited range, 1280x720, 3 frames
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi -i "color=c=red:size=1280x720:rate=30:duration=0.1"
+                -c:v libx264 -pix_fmt yuv420p
+                -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv
+                "${TEST_FIXTURES_DIR}/bt709_limited.mp4"
+            OUTPUT_QUIET ERROR_QUIET
+        )
+
+        # 8-bit BT.709 full range, 320x240, 3 frames
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi -i "color=c=blue:size=320x240:rate=30:duration=0.1"
+                -c:v libx264 -pix_fmt yuv420p
+                -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range pc
+                "${TEST_FIXTURES_DIR}/bt709_full.mp4"
+            OUTPUT_QUIET ERROR_QUIET
+        )
+
+        # SD content (480p) for BT.601 auto-detection
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi -i "color=c=green:size=640x480:rate=30:duration=0.1"
+                -c:v libx264 -pix_fmt yuv420p
+                "${TEST_FIXTURES_DIR}/sd_480p.mp4"
+            OUTPUT_QUIET ERROR_QUIET
+        )
+
+        # 10-bit HDR (BT.2020 + PQ) - only if libx265 is available
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi -i "color=c=yellow:size=1920x1080:rate=30:duration=0.1"
+                -c:v libx265 -pix_fmt yuv420p10le
+                -colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 -color_range tv
+                -tag:v hvc1
+                "${TEST_FIXTURES_DIR}/hdr10.mp4"
+            RESULT_VARIABLE HDR_FIXTURE_RESULT
+            OUTPUT_QUIET ERROR_QUIET
+        )
+        if(HDR_FIXTURE_RESULT EQUAL 0)
+            set(HAVE_HDR_FIXTURE TRUE)
+        else()
+            set(HAVE_HDR_FIXTURE FALSE)
+            message(STATUS "libx265 not available, HDR reader test fixture skipped")
+        endif()
+    else()
+        message(WARNING "ffmpeg not found, test fixtures will not be generated")
+    endif()
+
+    add_executable(cvffmpeg_tests
+        tests/test_video_reader.cpp
+        tests/test_video_writer.cpp
+        tests/test_roundtrip.cpp
+    )
+
+    target_link_libraries(cvffmpeg_tests PRIVATE cvffmpeg Catch2::Catch2WithMain)
+
+    target_compile_definitions(cvffmpeg_tests PRIVATE
+        TEST_FIXTURES_DIR="${TEST_FIXTURES_DIR}"
+    )
+
+    if(FFPROBE_EXECUTABLE)
+        target_compile_definitions(cvffmpeg_tests PRIVATE
+            FFPROBE_EXECUTABLE="${FFPROBE_EXECUTABLE}"
+        )
+    endif()
+
+    if(HAVE_HDR_FIXTURE)
+        target_compile_definitions(cvffmpeg_tests PRIVATE HAVE_HDR_FIXTURE)
+    endif()
+
+    add_test(NAME cvffmpeg_tests COMMAND cvffmpeg_tests)
 endif()
 
 # ------------------------------------------------------------------------------
