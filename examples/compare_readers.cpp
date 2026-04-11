@@ -1,11 +1,11 @@
-/// Compare cvffmpeg::VideoReader against cv::VideoCapture on the same file.
+/// Compare framewright::VideoReader against cv::VideoCapture on the same file.
 ///
 /// Usage: compare_readers <video_file>
 ///
 /// Writes PNG snapshots so you can diff pixel values and see
 /// exactly where OpenCV's silent color matrix choice diverges.
 
-#include <cvffmpeg/VideoReader.h>
+#include <framewright/VideoReader.h>
 
 #include <iostream>
 #include <opencv2/opencv.hpp>
@@ -18,9 +18,9 @@ int main(int argc, char** argv) {
 
     std::string videoPath = argv[1];
 
-    std::cout << "\n=== cvffmpeg::VideoReader (auto-detect) ===" << std::endl;
+    std::cout << "\n=== framewright::VideoReader (auto-detect) ===" << std::endl;
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         if (!reader.open(videoPath)) {
             std::cerr << "Failed to open video" << std::endl;
             return 1;
@@ -35,13 +35,13 @@ int main(int argc, char** argv) {
         cv::Scalar mean = cv::mean(frame);
         std::cout << "  Mean BGR: (" << mean[0] << ", " << mean[1] << ", " << mean[2] << ")"
                   << std::endl;
-        cv::imwrite("/tmp/cvffmpeg_default.png", frame);
-        std::cout << "  Saved to /tmp/cvffmpeg_default.png" << std::endl;
+        cv::imwrite("/tmp/framewright_default.png", frame);
+        std::cout << "  Saved to /tmp/framewright_default.png" << std::endl;
     }
 
-    std::cout << "\n=== cvffmpeg::VideoReader (force BT.709) ===" << std::endl;
+    std::cout << "\n=== framewright::VideoReader (force BT.709) ===" << std::endl;
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         if (!reader.open(videoPath, true, false)) {
             std::cerr << "Failed to open video" << std::endl;
             return 1;
@@ -56,13 +56,13 @@ int main(int argc, char** argv) {
         cv::Scalar mean = cv::mean(frame);
         std::cout << "  Mean BGR: (" << mean[0] << ", " << mean[1] << ", " << mean[2] << ")"
                   << std::endl;
-        cv::imwrite("/tmp/cvffmpeg_bt709.png", frame);
-        std::cout << "  Saved to /tmp/cvffmpeg_bt709.png" << std::endl;
+        cv::imwrite("/tmp/framewright_bt709.png", frame);
+        std::cout << "  Saved to /tmp/framewright_bt709.png" << std::endl;
     }
 
-    std::cout << "\n=== cvffmpeg::VideoReader (force BT.709 + full range) ===" << std::endl;
+    std::cout << "\n=== framewright::VideoReader (force BT.709 + full range) ===" << std::endl;
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         if (!reader.open(videoPath, true, true)) {
             std::cerr << "Failed to open video" << std::endl;
             return 1;
@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
         cv::Scalar mean = cv::mean(frame);
         std::cout << "  Mean BGR: (" << mean[0] << ", " << mean[1] << ", " << mean[2] << ")"
                   << std::endl;
-        cv::imwrite("/tmp/cvffmpeg_bt709_full.png", frame);
-        std::cout << "  Saved to /tmp/cvffmpeg_bt709_full.png" << std::endl;
+        cv::imwrite("/tmp/framewright_bt709_full.png", frame);
+        std::cout << "  Saved to /tmp/framewright_bt709_full.png" << std::endl;
     }
 
     std::cout << "\n=== cv::VideoCapture (for comparison) ===" << std::endl;
@@ -103,9 +103,9 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "\n=== Compare with ImageMagick ===" << std::endl;
-    std::cout << "  compare -metric RMSE /tmp/opencv.png /tmp/cvffmpeg_default.png /dev/null 2>&1"
+    std::cout << "  compare -metric RMSE /tmp/opencv.png /tmp/framewright_default.png /dev/null 2>&1"
               << std::endl;
-    std::cout << "  compare -metric RMSE /tmp/opencv.png /tmp/cvffmpeg_bt709.png /dev/null 2>&1"
+    std::cout << "  compare -metric RMSE /tmp/opencv.png /tmp/framewright_bt709.png /dev/null 2>&1"
               << std::endl;
 
     return 0;

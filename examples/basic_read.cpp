@@ -2,7 +2,7 @@
 ///
 /// Usage: basic_read <video_file>
 
-#include <cvffmpeg/VideoReader.h>
+#include <framewright/VideoReader.h>
 
 #include <iostream>
 
@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     if (!reader.open(argv[1], /*force_bt709=*/true)) {
         std::cerr << "Failed to open video" << std::endl;
         return 1;

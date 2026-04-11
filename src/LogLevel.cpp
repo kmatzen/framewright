@@ -1,6 +1,6 @@
-#include "cvffmpeg/LogLevel.h"
+#include "framewright/LogLevel.h"
 
-namespace cvffmpeg {
+namespace framewright {
 
 namespace {
 
@@ -31,4 +31,4 @@ std::ostream& log(LogLevel level) {
 
 } // namespace detail
 
-} // namespace cvffmpeg
+} // namespace framewright

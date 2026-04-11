@@ -10,7 +10,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-namespace cvffmpeg {
+namespace framewright {
 
 /// Drop-in replacement for cv::VideoCapture with correct color space handling.
 ///
@@ -97,4 +97,4 @@ class VideoReader {
     bool force_full_range_ = false;
 };
 
-} // namespace cvffmpeg
+} // namespace framewright
