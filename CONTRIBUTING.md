@@ -37,7 +37,7 @@ ctest --output-on-failure
 
 - Use trailing underscores for private member variables (`width_`, `formatCtx_`).
 - Match the existing formatting (clang-format is not enforced yet, but keep it consistent).
-- Error messages go to `std::cerr` with a `cvffmpeg::ClassName:` prefix.
+- Log messages use `detail::log(LogLevel::Error/Warning/Info)` — never `std::cerr` directly.
 - Check return values from FFmpeg API calls.
 - Free resources on all error paths in `open()` methods.
 
