@@ -1,0 +1,36 @@
+[build-system]
+requires = ["scikit-build-core>=0.5", "pybind11>=2.11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "cvffmpeg"
+version = "0.1.0"
+description = "Color-correct video I/O — drop-in replacement for OpenCV VideoCapture/VideoWriter"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Kevin Blackburn-Matzen"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "numpy",
+]
+
+[project.urls]
+Homepage = "https://github.com/kmatzen/cvffmpeg"
+Repository = "https://github.com/kmatzen/cvffmpeg"
+Issues = "https://github.com/kmatzen/cvffmpeg/issues"
+
+[tool.scikit-build]
+cmake.args = ["-DCVFFMPEG_BUILD_PYTHON=ON"]
+wheel.packages = ["python/cvffmpeg"]
