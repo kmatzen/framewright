@@ -6,6 +6,6 @@ find_dependency(OpenCV)
 find_dependency(PkgConfig)
 pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libswscale libavutil)
 
-include("${CMAKE_CURRENT_LIST_DIR}/cvffmpegTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/framewrightTargets.cmake")
 
-check_required_components(cvffmpeg)
+check_required_components(framewright)

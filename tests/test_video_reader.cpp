@@ -1,13 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <cvffmpeg/VideoReader.h>
+#include <framewright/VideoReader.h>
 
 #include <string>
 
 static const std::string fixtures = TEST_FIXTURES_DIR;
 
 TEST_CASE("VideoReader opens a valid file", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     CHECK(reader.getWidth() == 1280);
@@ -16,12 +16,12 @@ TEST_CASE("VideoReader opens a valid file", "[reader]") {
 }
 
 TEST_CASE("VideoReader fails on nonexistent file", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE_FALSE(reader.open("/nonexistent/path/video.mp4"));
 }
 
 TEST_CASE("VideoReader reads frames", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     cv::Mat frame;
@@ -34,7 +34,7 @@ TEST_CASE("VideoReader reads frames", "[reader]") {
 }
 
 TEST_CASE("VideoReader reads all frames until EOF", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     cv::Mat frame;
@@ -49,7 +49,7 @@ TEST_CASE("VideoReader reads all frames until EOF", "[reader]") {
 }
 
 TEST_CASE("VideoReader reports color metadata for BT.709", "[reader][color]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     CHECK(reader.getColorSpace() == AVCOL_SPC_BT709);
@@ -58,14 +58,14 @@ TEST_CASE("VideoReader reports color metadata for BT.709", "[reader][color]") {
 }
 
 TEST_CASE("VideoReader reports full range", "[reader][color]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_full.mp4"));
 
     CHECK(reader.getColorRange() == AVCOL_RANGE_JPEG);
 }
 
 TEST_CASE("VideoReader force_bt709 flag", "[reader][color]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/sd_480p.mp4", /*force_bt709=*/true));
 
     CHECK(reader.isForcingBT709());
@@ -73,7 +73,7 @@ TEST_CASE("VideoReader force_bt709 flag", "[reader][color]") {
 }
 
 TEST_CASE("VideoReader force_full_range flag", "[reader][color]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4", /*force_bt709=*/false,
                         /*force_full_range=*/true));
 
@@ -82,7 +82,7 @@ TEST_CASE("VideoReader force_full_range flag", "[reader][color]") {
 }
 
 TEST_CASE("VideoReader seek forward", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     // Read first frame
@@ -96,7 +96,7 @@ TEST_CASE("VideoReader seek forward", "[reader]") {
 }
 
 TEST_CASE("VideoReader seek backward fails", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     cv::Mat frame;
@@ -109,7 +109,7 @@ TEST_CASE("VideoReader seek backward fails", "[reader]") {
 }
 
 TEST_CASE("VideoReader close and reopen", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
     cv::Mat frame;
@@ -126,10 +126,10 @@ TEST_CASE("VideoReader close and reopen", "[reader]") {
 }
 
 TEST_CASE("VideoReader move constructor", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
-    cvffmpeg::VideoReader moved(std::move(reader));
+    framewright::VideoReader moved(std::move(reader));
     CHECK(moved.getWidth() == 1280);
 
     cv::Mat frame;
@@ -138,10 +138,10 @@ TEST_CASE("VideoReader move constructor", "[reader]") {
 }
 
 TEST_CASE("VideoReader move assignment", "[reader]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
 
-    cvffmpeg::VideoReader other;
+    framewright::VideoReader other;
     other = std::move(reader);
     CHECK(other.getWidth() == 1280);
 
@@ -151,7 +151,7 @@ TEST_CASE("VideoReader move assignment", "[reader]") {
 
 #ifdef HAVE_HDR_FIXTURE
 TEST_CASE("VideoReader opens HDR10 file", "[reader][hdr]") {
-    cvffmpeg::VideoReader reader;
+    framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/hdr10.mp4"));
 
     CHECK(reader.getColorSpace() == AVCOL_SPC_BT2020_NCL);
