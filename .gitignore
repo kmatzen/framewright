@@ -36,3 +36,4 @@ _deps/
 
 # macOS
 .DS_Store
+dist/
