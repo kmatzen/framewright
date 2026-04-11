@@ -314,9 +314,7 @@ bool VideoReader::seek(int64_t frame_number) {
         return false;
     }
 
-    if (current_frame_ > frame_number) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Cannot seek backwards (current=" << current_frame_
-                  << ", target=" << frame_number << ")" << std::endl;
+    if (frame_number < 0) {
         return false;
     }
 
@@ -324,21 +322,61 @@ bool VideoReader::seek(int64_t frame_number) {
         return true;
     }
 
-    detail::log(LogLevel::Info) << "cvffmpeg::VideoReader: Reading forward from frame " << current_frame_ << " to "
-              << frame_number << " (" << (frame_number - current_frame_) << " frames)" << std::endl;
+    AVStream* stream = formatCtx_->streams[videoStreamIndex_];
 
-    cv::Mat tempFrame;
-    while (current_frame_ < frame_number && read(tempFrame)) {
-    }
+    // For backward seeks, or large forward jumps (>50 frames), use keyframe seeking
+    bool need_keyframe_seek =
+        (frame_number < current_frame_) || (frame_number - current_frame_ > 50);
 
-    bool success = (current_frame_ == frame_number);
-    if (success) {
-        detail::log(LogLevel::Info) << "  Reached target frame " << frame_number << std::endl;
+    if (need_keyframe_seek) {
+        int64_t target_ts;
+        if (stream->avg_frame_rate.num != 0 && stream->avg_frame_rate.den != 0) {
+            target_ts = av_rescale_q(frame_number,
+                                     av_inv_q(stream->avg_frame_rate),
+                                     stream->time_base);
+        } else {
+            AVRational fps = stream->r_frame_rate;
+            if (fps.num == 0 || fps.den == 0) {
+                fps = {30, 1};
+            }
+            target_ts = av_rescale_q(frame_number, av_inv_q(fps), stream->time_base);
+        }
+
+        int ret = av_seek_frame(formatCtx_, videoStreamIndex_, target_ts, AVSEEK_FLAG_BACKWARD);
+        if (ret < 0) {
+            detail::log(LogLevel::Error)
+                << "cvffmpeg::VideoReader: Keyframe seek failed" << std::endl;
+            return false;
+        }
+
+        avcodec_flush_buffers(codecCtx_);
+        current_frame_ = 0;
+        current_timestamp_ = 0.0;
+
+        cv::Mat tempFrame;
+        if (!read(tempFrame)) {
+            return false;
+        }
+
+        if (frame_->pts != AV_NOPTS_VALUE) {
+            double time_pos = frame_->pts * av_q2d(stream->time_base);
+            double frame_duration = av_q2d(av_inv_q(stream->avg_frame_rate.num != 0
+                                                        ? stream->avg_frame_rate
+                                                        : stream->r_frame_rate));
+            if (frame_duration > 0) {
+                current_frame_ = static_cast<int64_t>(time_pos / frame_duration + 0.5);
+            }
+        }
+
+        while (current_frame_ < frame_number && read(tempFrame)) {
+        }
     } else {
-        detail::log(LogLevel::Warning) << "  WARNING: Only reached frame " << current_frame_ << " (EOF?)" << std::endl;
+        cv::Mat tempFrame;
+        while (current_frame_ < frame_number && read(tempFrame)) {
+        }
     }
 
-    return success;
+    return current_frame_ == frame_number;
 }
 
 void VideoReader::close() { cleanup(); }
