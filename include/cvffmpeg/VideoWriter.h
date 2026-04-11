@@ -63,11 +63,11 @@ class VideoWriter {
     double getCurrentTimestamp() const;
 
   private:
-    AVFormatContext* formatCtx = nullptr;
-    AVCodecContext* codecCtx = nullptr;
-    AVStream* videoStream = nullptr;
-    SwsContext* swsCtx = nullptr;
-    AVFrame* frame = nullptr;
+    AVFormatContext* formatCtx_ = nullptr;
+    AVCodecContext* codecCtx_ = nullptr;
+    AVStream* videoStream_ = nullptr;
+    SwsContext* swsCtx_ = nullptr;
+    AVFrame* frame_ = nullptr;
     int width_ = 0;
     int height_ = 0;
     AVRational framerate_ = AVRational{1, 30};
