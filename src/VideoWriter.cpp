@@ -1,7 +1,8 @@
 #include "cvffmpeg/VideoWriter.h"
 
+#include "cvffmpeg/LogLevel.h"
+
 #include <cstddef>
-#include <iostream>
 
 namespace cvffmpeg {
 
@@ -79,7 +80,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     if (use_444 && !is_10bit) {
         this->pix_fmt_ = AV_PIX_FMT_YUV444P;
         pix_fmt = this->pix_fmt_;
-        std::cerr << "Using 4:4:4 chroma (no subsampling) for maximum color fidelity" << std::endl;
+        detail::log(LogLevel::Info) << "Using 4:4:4 chroma (no subsampling) for maximum color fidelity" << std::endl;
     }
 
     // For lossless encoding, force 4:4:4 and full range for maximum quality
@@ -88,13 +89,13 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         pix_fmt = this->pix_fmt_;
         use_444_ = true;
         full_range_ = true;
-        std::cerr << "LOSSLESS mode: Using YUV444P (4:4:4) full range for zero quality loss"
+        detail::log(LogLevel::Info) << "LOSSLESS mode: Using YUV444P (4:4:4) full range for zero quality loss"
                   << std::endl;
     }
 
     avformat_alloc_output_context2(&formatCtx_, nullptr, nullptr, filename.c_str());
     if (!formatCtx_) {
-        std::cerr << "Failed to allocate output context." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to allocate output context." << std::endl;
         release();
         return false;
     }
@@ -110,9 +111,9 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         codec = avcodec_find_encoder_by_name("libx265");
         if (codec) {
             if (is_10bit) {
-                std::cerr << "Using libx265 for HEVC 10-bit HDR" << std::endl;
+                detail::log(LogLevel::Info) << "Using libx265 for HEVC 10-bit HDR" << std::endl;
             } else {
-                std::cerr << "Using libx265 for HEVC 10-bit SDR" << std::endl;
+                detail::log(LogLevel::Info) << "Using libx265 for HEVC 10-bit SDR" << std::endl;
             }
         }
     }
@@ -121,14 +122,14 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     if (codec_id == AV_CODEC_ID_FFV1) {
         this->pix_fmt_ = AV_PIX_FMT_GBRP;
         pix_fmt = this->pix_fmt_;
-        std::cerr << "Using FFV1 lossless codec with RGB pixel format (no YUV conversion)"
+        detail::log(LogLevel::Info) << "Using FFV1 lossless codec with RGB pixel format (no YUV conversion)"
                   << std::endl;
     }
 
     if (!codec) {
         codec = avcodec_find_encoder(static_cast<AVCodecID>(codec_id));
         if (!codec) {
-            std::cerr << "Codec not found." << std::endl;
+            detail::log(LogLevel::Error) << "Codec not found." << std::endl;
             release();
             return false;
         }
@@ -136,14 +137,14 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 
     videoStream_ = avformat_new_stream(formatCtx_, codec);
     if (!videoStream_) {
-        std::cerr << "Failed to create stream." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to create stream." << std::endl;
         release();
         return false;
     }
 
     codecCtx_ = avcodec_alloc_context3(codec);
     if (!codecCtx_) {
-        std::cerr << "Failed to allocate codec context." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to allocate codec context." << std::endl;
         release();
         return false;
     }
@@ -155,7 +156,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     codecCtx_->width = width;
     codecCtx_->height = height;
     codecCtx_->bit_rate = bitrate;
-    std::cerr << "framerate: " << framerate.num << " / " << framerate.den << std::endl;
+    detail::log(LogLevel::Info) << "framerate: " << framerate.num << " / " << framerate.den << std::endl;
     videoStream_->time_base = AVRational{framerate.den, framerate.num};
     codecCtx_->time_base = videoStream_->time_base;
     videoStream_->r_frame_rate = framerate;
@@ -175,7 +176,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         codecCtx_->color_range = full_range_ ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
 
         if (is_10bit_pix_fmt_early) {
-            std::cerr << "Using 10-bit SDR (BT.709, higher precision for intermediates)"
+            detail::log(LogLevel::Info) << "Using 10-bit SDR (BT.709, higher precision for intermediates)"
                       << std::endl;
         }
     }
@@ -193,7 +194,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         av_dict_set(&opts, "context", "0", 0);
         av_dict_set(&opts, "slices", "4", 0);
         av_dict_set(&opts, "slicecrc", "1", 0);
-        std::cerr << "FFV1 lossless encoding (RGB, no YUV conversion)" << std::endl;
+        detail::log(LogLevel::Info) << "FFV1 lossless encoding (RGB, no YUV conversion)" << std::endl;
     } else if (is_10bit && codec_id == AV_CODEC_ID_HEVC && using_libx265) {
         av_dict_set(&opts, "preset", "medium", 0);
         av_dict_set(
@@ -214,7 +215,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                 : "profile=main10:colorprim=bt709:transfer=bt709:colormatrix=bt709:range=tv";
         av_dict_set(&opts, "x265-params", x265_params, 0);
 
-        std::cerr << "HEVC 10-bit SDR encoding (Main10, BT.709, "
+        detail::log(LogLevel::Info) << "HEVC 10-bit SDR encoding (Main10, BT.709, "
                   << (full_range_ ? "full" : "limited") << " range)" << std::endl;
     } else if (!is_10bit && codec_id == AV_CODEC_ID_H264) {
         if (lossless) {
@@ -223,7 +224,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
             av_dict_set(&opts, "qp", "0", 0);
             av_dict_set(&opts, "x264-params",
                         "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=pc", 0);
-            std::cerr << "H.264 lossless encoding (qp=0, 4:4:4)" << std::endl;
+            detail::log(LogLevel::Info) << "H.264 lossless encoding (qp=0, 4:4:4)" << std::endl;
         } else {
             av_dict_set(&opts, "preset", "slow", 0);
             if (use_444_) {
@@ -244,9 +245,9 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     if (ret < 0) {
         char errbuf[AV_ERROR_MAX_STRING_SIZE];
         av_strerror(ret, errbuf, sizeof(errbuf));
-        std::cerr << "Failed to open codec: " << errbuf << " (error code: " << ret << ")"
+        detail::log(LogLevel::Error) << "Failed to open codec: " << errbuf << " (error code: " << ret << ")"
                   << std::endl;
-        std::cerr << "Codec: " << codec->name
+        detail::log(LogLevel::Info) << "Codec: " << codec->name
                   << ", Pixel format: " << av_get_pix_fmt_name(codecCtx_->pix_fmt) << std::endl;
         av_dict_free(&opts);
         release();
@@ -260,26 +261,26 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     // Set codec tag to 'hvc1' for QuickTime compatibility
     if (codec_id == AV_CODEC_ID_HEVC) {
         videoStream_->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
-        std::cerr << "Set codec tag to hvc1 for QuickTime compatibility" << std::endl;
+        detail::log(LogLevel::Info) << "Set codec tag to hvc1 for QuickTime compatibility" << std::endl;
     }
 
     if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
         if (avio_open(&formatCtx_->pb, filename.c_str(), AVIO_FLAG_WRITE) < 0) {
-            std::cerr << "Failed to open output file." << std::endl;
+            detail::log(LogLevel::Error) << "Failed to open output file." << std::endl;
             release();
             return false;
         }
     }
 
     if (avformat_write_header(formatCtx_, nullptr) < 0) {
-        std::cerr << "Failed to write header." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to write header." << std::endl;
         release();
         return false;
     }
 
     frame_ = av_frame_alloc();
     if (!frame_) {
-        std::cerr << "Failed to allocate frame." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to allocate frame." << std::endl;
         release();
         return false;
     }
@@ -289,7 +290,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     frame_->height = codecCtx_->height;
 
     if (av_frame_get_buffer(frame_, 32) < 0) {
-        std::cerr << "Failed to allocate frame buffer." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to allocate frame buffer." << std::endl;
         release();
         return false;
     }
@@ -305,14 +306,14 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                             SWS_LANCZOS, nullptr, nullptr, nullptr);
 
     if (!swsCtx_) {
-        std::cerr << "Failed to create swscale context." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to create swscale context." << std::endl;
         release();
         return false;
     }
 
     // Configure color space conversion
     if (codec_id == AV_CODEC_ID_FFV1) {
-        std::cerr << "FFV1: No colorspace conversion needed (RGB->RGB)" << std::endl;
+        detail::log(LogLevel::Info) << "FFV1: No colorspace conversion needed (RGB->RGB)" << std::endl;
     } else if (is_10bit) {
         int* inv_table = nullptr;
         int* table = nullptr;
@@ -325,9 +326,9 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
             const int* dst_coeff = sws_getCoefficients(SWS_CS_BT2020);
             sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, 0, brightness, contrast,
                                      saturation);
-            std::cerr << "Configured swscale for BT.2020 HDR colorspace" << std::endl;
+            detail::log(LogLevel::Info) << "Configured swscale for BT.2020 HDR colorspace" << std::endl;
         } else {
-            std::cerr << "Warning: Failed to get colorspace details from swscale context"
+            detail::log(LogLevel::Error) << "Warning: Failed to get colorspace details from swscale context"
                       << std::endl;
         }
     } else {
@@ -343,7 +344,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
             int dst_range = full_range_ ? 1 : 0;
             sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, dst_range, brightness,
                                      contrast, saturation);
-            std::cerr << "Configured swscale for BT.709 SDR colorspace ("
+            detail::log(LogLevel::Info) << "Configured swscale for BT.709 SDR colorspace ("
                       << (full_range_ ? "full" : "limited") << " range)" << std::endl;
         }
     }
@@ -354,25 +355,25 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 
 bool VideoWriter::write(const cv::Mat& image) {
     if (image.empty()) {
-        std::cerr << "Empty frame provided." << std::endl;
+        detail::log(LogLevel::Error) << "Empty frame provided." << std::endl;
         return false;
     }
 
     if (image.type() != CV_8UC3 && image.type() != CV_16UC3) {
-        std::cerr << "Invalid image type: " << image.type() << ". Expected CV_8UC3 or CV_16UC3."
+        detail::log(LogLevel::Error) << "Invalid image type: " << image.type() << ". Expected CV_8UC3 or CV_16UC3."
                   << std::endl;
         return false;
     }
 
     if (image.cols != width_ || image.rows != height_) {
-        std::cerr << "Frame dimensions " << image.cols << "x" << image.rows
+        detail::log(LogLevel::Error) << "Frame dimensions " << image.cols << "x" << image.rows
                   << " do not match writer dimensions " << width_ << "x" << height_ << std::endl;
         return false;
     }
 
     AVPacket* packet = av_packet_alloc();
     if (!packet) {
-        std::cerr << "Failed to allocate packet." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to allocate packet." << std::endl;
         return false;
     }
 
@@ -396,7 +397,7 @@ bool VideoWriter::write(const cv::Mat& image) {
 
     int ret = sws_scale(swsCtx_, srcSlice, srcStride, 0, height_, frame_->data, frame_->linesize);
     if (ret < 0) {
-        std::cerr << "sws_scale failed with error: " << ret << std::endl;
+        detail::log(LogLevel::Error) << "sws_scale failed with error: " << ret << std::endl;
         return false;
     }
 
@@ -433,7 +434,7 @@ bool VideoWriter::write(const cv::Mat& image) {
 
     int send_ret = avcodec_send_frame(codecCtx_, frame_);
     if (send_ret < 0) {
-        std::cerr << "Failed to send frame to encoder. Error code: " << send_ret << std::endl;
+        detail::log(LogLevel::Error) << "Failed to send frame to encoder. Error code: " << send_ret << std::endl;
         return false;
     }
 
@@ -442,13 +443,13 @@ bool VideoWriter::write(const cv::Mat& image) {
         if (receive_ret == AVERROR(EAGAIN) || receive_ret == AVERROR_EOF) {
             break;
         } else if (receive_ret < 0) {
-            std::cerr << "Error receiving packet from encoder: " << receive_ret << std::endl;
+            detail::log(LogLevel::Error) << "Error receiving packet from encoder: " << receive_ret << std::endl;
             break;
         }
 
         packet->stream_index = videoStream_->index;
         if (av_interleaved_write_frame(formatCtx_, packet) < 0) {
-            std::cerr << "Failed to write frame." << std::endl;
+            detail::log(LogLevel::Error) << "Failed to write frame." << std::endl;
             av_packet_free(&packet);
             return false;
         }
@@ -501,12 +502,12 @@ void VideoWriter::flush() {
 
     AVPacket* packet = av_packet_alloc();
     if (!packet) {
-        std::cerr << "Failed to allocate packet for flush." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to allocate packet for flush." << std::endl;
         return;
     }
 
     if (avcodec_send_frame(codecCtx_, nullptr) < 0) {
-        std::cerr << "Failed to send flush frame to encoder." << std::endl;
+        detail::log(LogLevel::Error) << "Failed to send flush frame to encoder." << std::endl;
         av_packet_free(&packet);
         return;
     }
@@ -516,13 +517,13 @@ void VideoWriter::flush() {
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
         } else if (ret < 0) {
-            std::cerr << "Error during encoder flush." << std::endl;
+            detail::log(LogLevel::Error) << "Error during encoder flush." << std::endl;
             break;
         }
 
         packet->stream_index = videoStream_->index;
         if (av_interleaved_write_frame(formatCtx_, packet) < 0) {
-            std::cerr << "Failed to write flush packet." << std::endl;
+            detail::log(LogLevel::Error) << "Failed to write flush packet." << std::endl;
         }
 
         av_packet_unref(packet);
