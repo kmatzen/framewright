@@ -251,8 +251,11 @@ bool VideoReader::read(cv::Mat& frame) {
                 return false;
             }
 
-            sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
-                      frameBGR_->linesize);
+            if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
+                          frameBGR_->linesize) < 0) {
+                std::cerr << "cvffmpeg::VideoReader: sws_scale failed" << std::endl;
+                return false;
+            }
 
             frame = cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0])
                         .clone();
@@ -290,8 +293,11 @@ bool VideoReader::read(cv::Mat& frame) {
             return false;
         }
 
-        sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
-                  frameBGR_->linesize);
+        if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
+                      frameBGR_->linesize) < 0) {
+            std::cerr << "cvffmpeg::VideoReader: sws_scale failed" << std::endl;
+            return false;
+        }
 
         frame =
             cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0]).clone();
