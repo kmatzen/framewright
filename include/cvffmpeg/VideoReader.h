@@ -50,9 +50,19 @@ class VideoReader {
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
     double getFPS() const { return fps_; }
+
+    /// Get the total frame count. Returns -1 if the container does not
+    /// report a frame count (common with MKV and some MP4 files).
     int64_t getFrameCount() const { return frame_count_; }
+
     int64_t getCurrentFrameNumber() const { return current_frame_; }
     double getCurrentTimestamp() const { return current_timestamp_; }
+
+    /// Get the file's pixel format (e.g. AV_PIX_FMT_YUV420P).
+    AVPixelFormat getPixelFormat() const;
+
+    /// Get the file's codec ID (e.g. AV_CODEC_ID_H264).
+    AVCodecID getCodecID() const;
 
     // Color space metadata from the file
     AVColorSpace getColorSpace() const;

@@ -380,6 +380,14 @@ void VideoReader::cleanup() {
     current_timestamp_ = 0.0;
 }
 
+AVPixelFormat VideoReader::getPixelFormat() const {
+    return codecCtx_ ? codecCtx_->pix_fmt : AV_PIX_FMT_NONE;
+}
+
+AVCodecID VideoReader::getCodecID() const {
+    return codecCtx_ ? codecCtx_->codec_id : AV_CODEC_ID_NONE;
+}
+
 AVColorSpace VideoReader::getColorSpace() const {
     return codecCtx_ ? codecCtx_->colorspace : AVCOL_SPC_UNSPECIFIED;
 }
