@@ -230,11 +230,7 @@ bool VideoReader::setupScaler() {
     return true;
 }
 
-bool VideoReader::read(cv::Mat& frame) {
-    if (!formatCtx_ || !codecCtx_) {
-        return false;
-    }
-
+bool VideoReader::decodeNextFrame() {
     while (true) {
         int ret = av_read_frame(formatCtx_, packet_);
         if (ret < 0) {
@@ -256,9 +252,6 @@ bool VideoReader::read(cv::Mat& frame) {
                 detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: sws_scale failed" << std::endl;
                 return false;
             }
-
-            frame = cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0])
-                        .clone();
 
             if (frame_->pts != AV_NOPTS_VALUE) {
                 AVStream* stream = formatCtx_->streams[videoStreamIndex_];
@@ -296,9 +289,6 @@ bool VideoReader::read(cv::Mat& frame) {
             return false;
         }
 
-        frame =
-            cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0]).clone();
-
         if (frame_->pts != AV_NOPTS_VALUE) {
             AVStream* stream = formatCtx_->streams[videoStreamIndex_];
             current_timestamp_ = frame_->pts * av_q2d(stream->time_base);
@@ -307,6 +297,28 @@ bool VideoReader::read(cv::Mat& frame) {
         current_frame_++;
         return true;
     }
+}
+
+bool VideoReader::read(cv::Mat& frame) {
+    if (!formatCtx_ || !codecCtx_) {
+        return false;
+    }
+    if (!decodeNextFrame()) {
+        return false;
+    }
+    frame = cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0]).clone();
+    return true;
+}
+
+bool VideoReader::readRef(cv::Mat& frame) {
+    if (!formatCtx_ || !codecCtx_) {
+        return false;
+    }
+    if (!decodeNextFrame()) {
+        return false;
+    }
+    frame = cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0]);
+    return true;
 }
 
 bool VideoReader::seek(int64_t frame_number) {
