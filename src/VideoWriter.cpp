@@ -1,11 +1,11 @@
-#include "cvffmpeg/VideoWriter.h"
+#include "framewright/VideoWriter.h"
 
-#include "cvffmpeg/LogLevel.h"
+#include "framewright/LogLevel.h"
 
 #include <cstddef>
 #include <cstdio>
 
-namespace cvffmpeg {
+namespace framewright {
 
 VideoWriter::VideoWriter() { av_log_set_level(AV_LOG_QUIET); }
 
@@ -558,4 +558,4 @@ double VideoWriter::getCurrentTimestamp() const {
     return static_cast<double>(pts_) / static_cast<double>(framerate_.num);
 }
 
-} // namespace cvffmpeg
+} // namespace framewright

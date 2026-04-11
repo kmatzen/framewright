@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <cvffmpeg/VideoReader.h>
-#include <cvffmpeg/VideoWriter.h>
+#include <framewright/VideoReader.h>
+#include <framewright/VideoWriter.h>
 
 #include <cstdio>
 #include <string>
@@ -22,7 +22,7 @@ TEST_CASE("Round-trip: write H.264 then read back", "[roundtrip]") {
 
     // Write
     {
-        cvffmpeg::VideoWriter writer;
+        framewright::VideoWriter writer;
         REQUIRE(writer.open(path, AV_CODEC_ID_H264, W, H, {30, 1}));
         for (int i = 0; i < 5; i++) {
             REQUIRE(writer.write(original));
@@ -32,7 +32,7 @@ TEST_CASE("Round-trip: write H.264 then read back", "[roundtrip]") {
 
     // Read back
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path));
 
         CHECK(reader.getWidth() == W);
@@ -60,7 +60,7 @@ TEST_CASE("Round-trip: H.264 lossy color accuracy", "[roundtrip][color]") {
 
     // Write with high quality (multiple frames for valid file metadata)
     {
-        cvffmpeg::VideoWriter writer;
+        framewright::VideoWriter writer;
         REQUIRE(writer.open(path, AV_CODEC_ID_H264, W, H, {30, 1},
                             25000000, AV_PIX_FMT_YUV420P, false, false, false, false));
         for (int i = 0; i < 3; i++) {
@@ -71,7 +71,7 @@ TEST_CASE("Round-trip: H.264 lossy color accuracy", "[roundtrip][color]") {
 
     // Read back and check pixel values are within lossy tolerance
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path, /*force_bt709=*/true));
 
         cv::Mat frame;
@@ -95,7 +95,7 @@ TEST_CASE("Round-trip: lossless H.264 preserves exact pixels", "[roundtrip][colo
 
     // Write lossless (multiple frames for valid file metadata)
     {
-        cvffmpeg::VideoWriter writer;
+        framewright::VideoWriter writer;
         REQUIRE(writer.open(path, AV_CODEC_ID_H264, W, H, {30, 1},
                             0, AV_PIX_FMT_YUV420P, false, false, false, true));
         for (int i = 0; i < 3; i++) {
@@ -106,7 +106,7 @@ TEST_CASE("Round-trip: lossless H.264 preserves exact pixels", "[roundtrip][colo
 
     // Read back — lossless 4:4:4 should give very close values
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path, /*force_bt709=*/true, /*force_full_range=*/true));
 
         cv::Mat frame;
@@ -130,7 +130,7 @@ TEST_CASE("Round-trip: FFV1 lossless RGB", "[roundtrip][color]") {
 
     // Write FFV1
     {
-        cvffmpeg::VideoWriter writer;
+        framewright::VideoWriter writer;
         if (!writer.open(path, AV_CODEC_ID_FFV1, W, H, {30, 1})) {
             SKIP("FFV1 codec not available or pixel format not supported");
         }
@@ -140,7 +140,7 @@ TEST_CASE("Round-trip: FFV1 lossless RGB", "[roundtrip][color]") {
 
     // Read back — FFV1 RGB should preserve exact values
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path));
 
         cv::Mat frame;
@@ -166,7 +166,7 @@ TEST_CASE("Round-trip: frame count preserved", "[roundtrip]") {
 
     // Write N frames with varying content
     {
-        cvffmpeg::VideoWriter writer;
+        framewright::VideoWriter writer;
         REQUIRE(writer.open(path, AV_CODEC_ID_H264, W, H, {30, 1}));
         for (int i = 0; i < NUM_FRAMES; i++) {
             cv::Mat frame(H, W, CV_8UC3, cv::Scalar(i * 25, i * 10, 255 - i * 25));
@@ -177,7 +177,7 @@ TEST_CASE("Round-trip: frame count preserved", "[roundtrip]") {
 
     // Read back and count
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path));
 
         cv::Mat frame;
@@ -194,7 +194,7 @@ TEST_CASE("Round-trip: frame count preserved", "[roundtrip]") {
 TEST_CASE("Round-trip: HEVC 10-bit HDR metadata", "[roundtrip][hdr]") {
     std::string path = temp_path("roundtrip_hdr10.mp4");
 
-    cvffmpeg::VideoWriter writer;
+    framewright::VideoWriter writer;
     bool opened = writer.open(path, AV_CODEC_ID_HEVC, 1920, 1080, {30, 1},
                               25000000, AV_PIX_FMT_YUV420P10LE, true, false, false, false);
 
@@ -210,7 +210,7 @@ TEST_CASE("Round-trip: HEVC 10-bit HDR metadata", "[roundtrip][hdr]") {
 
     // Read back and verify HDR color metadata
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path));
 
         CHECK(reader.getColorSpace() == AVCOL_SPC_BT2020_NCL);
@@ -267,7 +267,7 @@ TEST_CASE("Round-trip: FPS preserved", "[roundtrip]") {
     AVRational fps = {60000, 1001}; // 59.94 fps
 
     {
-        cvffmpeg::VideoWriter writer;
+        framewright::VideoWriter writer;
         REQUIRE(writer.open(path, AV_CODEC_ID_H264, W, H, fps));
 
         cv::Mat frame(H, W, CV_8UC3, cv::Scalar(128, 128, 128));
@@ -278,7 +278,7 @@ TEST_CASE("Round-trip: FPS preserved", "[roundtrip]") {
     }
 
     {
-        cvffmpeg::VideoReader reader;
+        framewright::VideoReader reader;
         REQUIRE(reader.open(path));
 
         double readFps = reader.getFPS();

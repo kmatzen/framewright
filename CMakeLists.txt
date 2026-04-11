@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(cvffmpeg VERSION 0.1.0 LANGUAGES CXX)
+project(framewright VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,9 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ------------------------------------------------------------------------------
 # Options
 # ------------------------------------------------------------------------------
-option(CVFFMPEG_BUILD_EXAMPLES "Build example programs" OFF)
-option(CVFFMPEG_BUILD_TESTS "Build tests" OFF)
-option(CVFFMPEG_BUILD_PYTHON "Build Python bindings" OFF)
+option(FRAMEWRIGHT_BUILD_EXAMPLES "Build example programs" OFF)
+option(FRAMEWRIGHT_BUILD_TESTS "Build tests" OFF)
+option(FRAMEWRIGHT_BUILD_PYTHON "Build Python bindings" OFF)
 
 # ------------------------------------------------------------------------------
 # Dependencies
@@ -24,9 +24,9 @@ pkg_check_modules(FFMPEG REQUIRED
 )
 
 # Create an imported target for FFmpeg (PkgConfig doesn't always do this cleanly)
-add_library(cvffmpeg_ffmpeg INTERFACE IMPORTED)
-target_include_directories(cvffmpeg_ffmpeg INTERFACE ${FFMPEG_INCLUDE_DIRS})
-target_link_directories(cvffmpeg_ffmpeg INTERFACE ${FFMPEG_LIBRARY_DIRS})
+add_library(framewright_ffmpeg INTERFACE IMPORTED)
+target_include_directories(framewright_ffmpeg INTERFACE ${FFMPEG_INCLUDE_DIRS})
+target_link_directories(framewright_ffmpeg INTERFACE ${FFMPEG_LIBRARY_DIRS})
 
 # Handle macOS framework flags from pkg-config
 set(_framework_flags "")
@@ -48,58 +48,58 @@ while(_i LESS _list_len)
     math(EXPR _i "${_i} + 1")
 endwhile()
 
-target_link_libraries(cvffmpeg_ffmpeg INTERFACE ${_other_flags} ${_framework_flags} ${FFMPEG_LIBRARIES})
+target_link_libraries(framewright_ffmpeg INTERFACE ${_other_flags} ${_framework_flags} ${FFMPEG_LIBRARIES})
 
 # ------------------------------------------------------------------------------
 # Library
 # ------------------------------------------------------------------------------
-add_library(cvffmpeg
+add_library(framewright
     src/LogLevel.cpp
     src/VideoReader.cpp
     src/VideoWriter.cpp
 )
 
-add_library(cvffmpeg::cvffmpeg ALIAS cvffmpeg)
+add_library(framewright::framewright ALIAS framewright)
 
-target_include_directories(cvffmpeg
+target_include_directories(framewright
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(cvffmpeg
+target_link_libraries(framewright
     PUBLIC
         ${OpenCV_LIBS}
-        cvffmpeg_ffmpeg
+        framewright_ffmpeg
 )
 
-set_target_properties(cvffmpeg PROPERTIES
+set_target_properties(framewright PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
-    EXPORT_NAME cvffmpeg
+    EXPORT_NAME framewright
 )
 
 # ------------------------------------------------------------------------------
 # Examples
 # ------------------------------------------------------------------------------
-if(CVFFMPEG_BUILD_EXAMPLES)
+if(FRAMEWRIGHT_BUILD_EXAMPLES)
     add_executable(compare_readers examples/compare_readers.cpp)
-    target_link_libraries(compare_readers PRIVATE cvffmpeg)
+    target_link_libraries(compare_readers PRIVATE framewright)
 
     add_executable(basic_read examples/basic_read.cpp)
-    target_link_libraries(basic_read PRIVATE cvffmpeg)
+    target_link_libraries(basic_read PRIVATE framewright)
 
     add_executable(basic_write examples/basic_write.cpp)
-    target_link_libraries(basic_write PRIVATE cvffmpeg)
+    target_link_libraries(basic_write PRIVATE framewright)
 
     add_executable(hdr_write examples/hdr_write.cpp)
-    target_link_libraries(hdr_write PRIVATE cvffmpeg)
+    target_link_libraries(hdr_write PRIVATE framewright)
 endif()
 
 # ------------------------------------------------------------------------------
 # Tests
 # ------------------------------------------------------------------------------
-if(CVFFMPEG_BUILD_TESTS)
+if(FRAMEWRIGHT_BUILD_TESTS)
     enable_testing()
 
     include(FetchContent)
@@ -165,40 +165,40 @@ if(CVFFMPEG_BUILD_TESTS)
         message(WARNING "ffmpeg not found, test fixtures will not be generated")
     endif()
 
-    add_executable(cvffmpeg_tests
+    add_executable(framewright_tests
         tests/test_video_reader.cpp
         tests/test_video_writer.cpp
         tests/test_roundtrip.cpp
     )
 
-    target_link_libraries(cvffmpeg_tests PRIVATE cvffmpeg Catch2::Catch2WithMain)
+    target_link_libraries(framewright_tests PRIVATE framewright Catch2::Catch2WithMain)
 
-    target_compile_definitions(cvffmpeg_tests PRIVATE
+    target_compile_definitions(framewright_tests PRIVATE
         TEST_FIXTURES_DIR="${TEST_FIXTURES_DIR}"
     )
 
     if(FFPROBE_EXECUTABLE)
-        target_compile_definitions(cvffmpeg_tests PRIVATE
+        target_compile_definitions(framewright_tests PRIVATE
             FFPROBE_EXECUTABLE="${FFPROBE_EXECUTABLE}"
         )
     endif()
 
     if(HAVE_HDR_FIXTURE)
-        target_compile_definitions(cvffmpeg_tests PRIVATE HAVE_HDR_FIXTURE)
+        target_compile_definitions(framewright_tests PRIVATE HAVE_HDR_FIXTURE)
     endif()
 
-    add_test(NAME cvffmpeg_tests COMMAND cvffmpeg_tests)
+    add_test(NAME framewright_tests COMMAND framewright_tests)
 endif()
 
 # ------------------------------------------------------------------------------
 # Python bindings
 # ------------------------------------------------------------------------------
-if(CVFFMPEG_BUILD_PYTHON)
+if(FRAMEWRIGHT_BUILD_PYTHON)
     find_package(pybind11 CONFIG REQUIRED)
 
-    pybind11_add_module(_cvffmpeg python/bindings.cpp)
-    target_link_libraries(_cvffmpeg PRIVATE cvffmpeg)
-    install(TARGETS _cvffmpeg DESTINATION .)
+    pybind11_add_module(_framewright python/bindings.cpp)
+    target_link_libraries(_framewright PRIVATE framewright)
+    install(TARGETS _framewright DESTINATION .)
 endif()
 
 # ------------------------------------------------------------------------------
@@ -207,38 +207,38 @@ endif()
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-install(TARGETS cvffmpeg
-    EXPORT cvffmpegTargets
+install(TARGETS framewright
+    EXPORT framewrightTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-install(DIRECTORY include/cvffmpeg
+install(DIRECTORY include/framewright
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-install(EXPORT cvffmpegTargets
-    FILE cvffmpegTargets.cmake
-    NAMESPACE cvffmpeg::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cvffmpeg
+install(EXPORT framewrightTargets
+    FILE framewrightTargets.cmake
+    NAMESPACE framewright::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/framewright
 )
 
 configure_package_config_file(
-    cmake/cvffmpegConfig.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/cvffmpegConfig.cmake"
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cvffmpeg
+    cmake/framewrightConfig.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/framewrightConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/framewright
 )
 
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/cvffmpegConfigVersion.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/framewrightConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/cvffmpegConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/cvffmpegConfigVersion.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cvffmpeg
+    "${CMAKE_CURRENT_BINARY_DIR}/framewrightConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/framewrightConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/framewright
 )

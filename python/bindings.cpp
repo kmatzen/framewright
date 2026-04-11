@@ -2,9 +2,9 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include <cvffmpeg/LogLevel.h>
-#include <cvffmpeg/VideoReader.h>
-#include <cvffmpeg/VideoWriter.h>
+#include <framewright/LogLevel.h>
+#include <framewright/VideoReader.h>
+#include <framewright/VideoWriter.h>
 
 namespace py = pybind11;
 
@@ -78,47 +78,47 @@ static cv::Mat numpy_to_mat(py::array arr) {
     throw py::type_error("Expected uint8 or uint16 array");
 }
 
-PYBIND11_MODULE(_cvffmpeg, m) {
-    m.doc() = "Color-correct video I/O — Python bindings for cvffmpeg";
+PYBIND11_MODULE(_framewright, m) {
+    m.doc() = "Color-correct video I/O — Python bindings for framewright";
 
     // LogLevel
-    py::enum_<cvffmpeg::LogLevel>(m, "LogLevel")
-        .value("Quiet", cvffmpeg::LogLevel::Quiet)
-        .value("Error", cvffmpeg::LogLevel::Error)
-        .value("Warning", cvffmpeg::LogLevel::Warning)
-        .value("Info", cvffmpeg::LogLevel::Info);
+    py::enum_<framewright::LogLevel>(m, "LogLevel")
+        .value("Quiet", framewright::LogLevel::Quiet)
+        .value("Error", framewright::LogLevel::Error)
+        .value("Warning", framewright::LogLevel::Warning)
+        .value("Info", framewright::LogLevel::Info);
 
-    m.def("set_log_level", &cvffmpeg::setLogLevel, py::arg("level"),
+    m.def("set_log_level", &framewright::setLogLevel, py::arg("level"),
           "Set the library-wide log level. Default is Error.");
-    m.def("get_log_level", &cvffmpeg::getLogLevel,
+    m.def("get_log_level", &framewright::getLogLevel,
           "Get the current log level.");
 
     // HDR10Metadata
-    py::class_<cvffmpeg::HDR10Metadata>(m, "HDR10Metadata")
+    py::class_<framewright::HDR10Metadata>(m, "HDR10Metadata")
         .def(py::init<>())
-        .def_readwrite("red_x", &cvffmpeg::HDR10Metadata::red_x)
-        .def_readwrite("red_y", &cvffmpeg::HDR10Metadata::red_y)
-        .def_readwrite("green_x", &cvffmpeg::HDR10Metadata::green_x)
-        .def_readwrite("green_y", &cvffmpeg::HDR10Metadata::green_y)
-        .def_readwrite("blue_x", &cvffmpeg::HDR10Metadata::blue_x)
-        .def_readwrite("blue_y", &cvffmpeg::HDR10Metadata::blue_y)
-        .def_readwrite("white_x", &cvffmpeg::HDR10Metadata::white_x)
-        .def_readwrite("white_y", &cvffmpeg::HDR10Metadata::white_y)
-        .def_readwrite("max_luminance", &cvffmpeg::HDR10Metadata::max_luminance)
-        .def_readwrite("min_luminance", &cvffmpeg::HDR10Metadata::min_luminance)
-        .def_readwrite("max_cll", &cvffmpeg::HDR10Metadata::max_cll)
-        .def_readwrite("max_fall", &cvffmpeg::HDR10Metadata::max_fall);
+        .def_readwrite("red_x", &framewright::HDR10Metadata::red_x)
+        .def_readwrite("red_y", &framewright::HDR10Metadata::red_y)
+        .def_readwrite("green_x", &framewright::HDR10Metadata::green_x)
+        .def_readwrite("green_y", &framewright::HDR10Metadata::green_y)
+        .def_readwrite("blue_x", &framewright::HDR10Metadata::blue_x)
+        .def_readwrite("blue_y", &framewright::HDR10Metadata::blue_y)
+        .def_readwrite("white_x", &framewright::HDR10Metadata::white_x)
+        .def_readwrite("white_y", &framewright::HDR10Metadata::white_y)
+        .def_readwrite("max_luminance", &framewright::HDR10Metadata::max_luminance)
+        .def_readwrite("min_luminance", &framewright::HDR10Metadata::min_luminance)
+        .def_readwrite("max_cll", &framewright::HDR10Metadata::max_cll)
+        .def_readwrite("max_fall", &framewright::HDR10Metadata::max_fall);
 
     // VideoReader
-    py::class_<cvffmpeg::VideoReader>(m, "VideoReader",
+    py::class_<framewright::VideoReader>(m, "VideoReader",
         "Color-correct video reader. Drop-in replacement for cv2.VideoCapture.")
         .def(py::init<>())
-        .def("open", &cvffmpeg::VideoReader::open,
+        .def("open", &framewright::VideoReader::open,
              py::arg("filename"),
              py::arg("force_bt709") = false,
              py::arg("force_full_range") = false,
              "Open a video file.")
-        .def("read", [](cvffmpeg::VideoReader& self) -> py::object {
+        .def("read", [](framewright::VideoReader& self) -> py::object {
                 cv::Mat frame;
                 if (!self.read(frame)) {
                     return py::none();
@@ -131,36 +131,36 @@ PYBIND11_MODULE(_cvffmpeg, m) {
              },
              "Read the next frame as a numpy array (H, W, 3) BGR uint8.\n"
              "Returns None at end of file.")
-        .def("seek", &cvffmpeg::VideoReader::seek,
+        .def("seek", &framewright::VideoReader::seek,
              py::arg("frame_number"),
              "Seek to a specific frame number (forward and backward).")
-        .def("close", &cvffmpeg::VideoReader::close)
-        .def_property_readonly("width", &cvffmpeg::VideoReader::getWidth)
-        .def_property_readonly("height", &cvffmpeg::VideoReader::getHeight)
-        .def_property_readonly("fps", &cvffmpeg::VideoReader::getFPS)
-        .def_property_readonly("frame_count", &cvffmpeg::VideoReader::getFrameCount)
-        .def_property_readonly("frame_number", &cvffmpeg::VideoReader::getCurrentFrameNumber)
-        .def_property_readonly("timestamp", &cvffmpeg::VideoReader::getCurrentTimestamp)
-        .def_property_readonly("pixel_format", [](const cvffmpeg::VideoReader& self) -> std::string {
+        .def("close", &framewright::VideoReader::close)
+        .def_property_readonly("width", &framewright::VideoReader::getWidth)
+        .def_property_readonly("height", &framewright::VideoReader::getHeight)
+        .def_property_readonly("fps", &framewright::VideoReader::getFPS)
+        .def_property_readonly("frame_count", &framewright::VideoReader::getFrameCount)
+        .def_property_readonly("frame_number", &framewright::VideoReader::getCurrentFrameNumber)
+        .def_property_readonly("timestamp", &framewright::VideoReader::getCurrentTimestamp)
+        .def_property_readonly("pixel_format", [](const framewright::VideoReader& self) -> std::string {
             AVPixelFormat fmt = self.getPixelFormat();
             const char* name = av_get_pix_fmt_name(fmt);
             return name ? name : "none";
         })
-        .def_property_readonly("codec", [](const cvffmpeg::VideoReader& self) -> std::string {
+        .def_property_readonly("codec", [](const framewright::VideoReader& self) -> std::string {
             AVCodecID id = self.getCodecID();
             const AVCodec* codec = avcodec_find_decoder(id);
             return codec ? codec->name : "none";
         })
-        .def("__enter__", [](cvffmpeg::VideoReader& self) -> cvffmpeg::VideoReader& {
+        .def("__enter__", [](framewright::VideoReader& self) -> framewright::VideoReader& {
             return self;
         })
-        .def("__exit__", [](cvffmpeg::VideoReader& self, py::object, py::object, py::object) {
+        .def("__exit__", [](framewright::VideoReader& self, py::object, py::object, py::object) {
             self.close();
         })
-        .def("__iter__", [](cvffmpeg::VideoReader& self) -> cvffmpeg::VideoReader& {
+        .def("__iter__", [](framewright::VideoReader& self) -> framewright::VideoReader& {
             return self;
         })
-        .def("__next__", [](cvffmpeg::VideoReader& self) -> py::object {
+        .def("__next__", [](framewright::VideoReader& self) -> py::object {
             cv::Mat frame;
             if (!self.read(frame)) {
                 throw py::stop_iteration();
@@ -172,10 +172,10 @@ PYBIND11_MODULE(_cvffmpeg, m) {
         });
 
     // VideoWriter
-    py::class_<cvffmpeg::VideoWriter>(m, "VideoWriter",
+    py::class_<framewright::VideoWriter>(m, "VideoWriter",
         "Color-correct video writer with HDR10 support.")
         .def(py::init<>())
-        .def("open", [](cvffmpeg::VideoWriter& self,
+        .def("open", [](framewright::VideoWriter& self,
                         const std::string& filename,
                         const std::string& codec,
                         int width, int height,
@@ -202,7 +202,7 @@ PYBIND11_MODULE(_cvffmpeg, m) {
                     }
                 }
 
-                cvffmpeg::VideoWriterOptions opts;
+                framewright::VideoWriterOptions opts;
                 opts.bitrate = bitrate;
                 opts.pix_fmt = pix_fmt_name_to_id(pix_fmt);
                 opts.is_10bit = is_10bit;
@@ -225,21 +225,21 @@ PYBIND11_MODULE(_cvffmpeg, m) {
              py::arg("use_444") = false,
              py::arg("lossless") = false,
              "Open an output file for writing.")
-        .def("write", [](cvffmpeg::VideoWriter& self, py::array frame) {
+        .def("write", [](framewright::VideoWriter& self, py::array frame) {
                 cv::Mat mat = numpy_to_mat(frame);
                 return self.write(mat);
              },
              py::arg("frame"),
              "Write a BGR frame (uint8 or uint16 numpy array with shape (H, W, 3)).")
-        .def("release", &cvffmpeg::VideoWriter::release,
+        .def("release", &framewright::VideoWriter::release,
              "Flush and finalize the file.")
-        .def("set_hdr10_metadata", &cvffmpeg::VideoWriter::setHDR10Metadata,
+        .def("set_hdr10_metadata", &framewright::VideoWriter::setHDR10Metadata,
              py::arg("metadata"))
-        .def_property_readonly("timestamp", &cvffmpeg::VideoWriter::getCurrentTimestamp)
-        .def("__enter__", [](cvffmpeg::VideoWriter& self) -> cvffmpeg::VideoWriter& {
+        .def_property_readonly("timestamp", &framewright::VideoWriter::getCurrentTimestamp)
+        .def("__enter__", [](framewright::VideoWriter& self) -> framewright::VideoWriter& {
             return self;
         })
-        .def("__exit__", [](cvffmpeg::VideoWriter& self, py::object, py::object, py::object) {
+        .def("__exit__", [](framewright::VideoWriter& self, py::object, py::object, py::object) {
             self.release();
         });
 }

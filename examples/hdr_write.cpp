@@ -5,7 +5,7 @@
 /// Requires libx265. The output plays with correct HDR tone mapping
 /// on macOS (QuickTime) and iOS.
 
-#include <cvffmpeg/VideoWriter.h>
+#include <framewright/VideoWriter.h>
 
 #include <iostream>
 
@@ -19,11 +19,11 @@ int main(int argc, char** argv) {
     const int height = 1080;
     const int num_frames = 60;  // 2 seconds at 30fps
 
-    cvffmpeg::VideoWriterOptions opts;
+    framewright::VideoWriterOptions opts;
     opts.pix_fmt = AV_PIX_FMT_YUV420P10LE;
     opts.is_10bit = true;
 
-    cvffmpeg::VideoWriter writer;
+    framewright::VideoWriter writer;
     if (!writer.open(argv[1], AV_CODEC_ID_HEVC, width, height,
                      {30, 1}, opts)) {
         std::cerr << "Failed to open output (is libx265 installed?)" << std::endl;

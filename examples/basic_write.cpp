@@ -2,7 +2,7 @@
 ///
 /// Usage: basic_write <output.mp4>
 
-#include <cvffmpeg/VideoWriter.h>
+#include <framewright/VideoWriter.h>
 
 #include <iostream>
 
@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
     const int height = 720;
     const int num_frames = 90;  // 3 seconds at 30fps
 
-    cvffmpeg::VideoWriter writer;
+    framewright::VideoWriter writer;
     if (!writer.open(argv[1], AV_CODEC_ID_H264, width, height, {30, 1})) {
         std::cerr << "Failed to open output" << std::endl;
         return 1;

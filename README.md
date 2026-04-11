@@ -1,12 +1,12 @@
-# cvffmpeg
+# framewright
 
 A drop-in replacement for `cv::VideoCapture` and `cv::VideoWriter` that gives you frame-precise seeking, color space control, HDR10 writing, and lossless encoding.
 
-## What cvffmpeg adds over OpenCV
+## What framewright adds over OpenCV
 
 ### Reading
 
-| Feature | OpenCV | cvffmpeg |
+| Feature | OpenCV | framewright |
 |---------|--------|----------|
 | Frame-precise seeking | Forward only, not frame-accurate | Forward and backward, keyframe-accelerated |
 | Color space control | Opaque, implementation-defined | Explicit BT.709/BT.601 selection, full/limited range override |
@@ -16,7 +16,7 @@ A drop-in replacement for `cv::VideoCapture` and `cv::VideoWriter` that gives yo
 
 ### Writing
 
-| Feature | OpenCV | cvffmpeg |
+| Feature | OpenCV | framewright |
 |---------|--------|----------|
 | HDR10 output | Not supported | HEVC 10-bit with BT.2020, PQ, mastering display metadata |
 | Lossless encoding | Not supported | FFV1 (RGB, no YUV loss), H.264 qp=0 with 4:4:4 |
@@ -26,16 +26,16 @@ A drop-in replacement for `cv::VideoCapture` and `cv::VideoWriter` that gives yo
 
 ### Verified accuracy
 
-Measured by reading BT.709-tagged lossless test videos with both libraries (OpenCV 4.13.0 and cvffmpeg on macOS). Both produce identical pixel values when metadata is present — cvffmpeg adds control, not a different answer:
+Measured by reading BT.709-tagged lossless test videos with both libraries (OpenCV 4.13.0 and framewright on macOS). Both produce identical pixel values when metadata is present — framewright adds control, not a different answer:
 
 ```bash
-cmake -B build -DCVFFMPEG_BUILD_EXAMPLES=ON && cmake --build build
+cmake -B build -DFRAMEWRIGHT_BUILD_EXAMPLES=ON && cmake --build build
 ./build/compare_readers your_video.mp4
 ```
 
 ## Migrating from OpenCV
 
-cvffmpeg is a drop-in replacement. The API follows the same conventions (BGR `cv::Mat` frames):
+framewright is a drop-in replacement. The API follows the same conventions (BGR `cv::Mat` frames):
 
 ### Reading
 
@@ -45,8 +45,8 @@ cv::VideoCapture cap("video.mp4");
 cv::Mat frame;
 cap.read(frame);
 
-// cvffmpeg — same API, more capabilities
-cvffmpeg::VideoReader reader;
+// framewright — same API, more capabilities
+framewright::VideoReader reader;
 reader.open("video.mp4");
 cv::Mat frame;
 reader.read(frame);
@@ -69,8 +69,8 @@ cv::VideoWriter w("out.mp4",
     30, cv::Size(1920, 1080));
 w.write(frame);
 
-// cvffmpeg — same pattern, more control
-cvffmpeg::VideoWriter w;
+// framewright — same pattern, more control
+framewright::VideoWriter w;
 w.open("out.mp4", AV_CODEC_ID_H264, 1920, 1080, {30, 1});
 w.write(frame);
 w.release();
@@ -78,7 +78,7 @@ w.release();
 
 ### Property mapping
 
-| OpenCV | cvffmpeg |
+| OpenCV | framewright |
 |--------|----------|
 | `cap.get(CAP_PROP_FRAME_WIDTH)` | `reader.getWidth()` |
 | `cap.get(CAP_PROP_FRAME_HEIGHT)` | `reader.getHeight()` |
@@ -91,10 +91,10 @@ w.release();
 ### C++
 
 ```cpp
-#include <cvffmpeg/cvffmpeg.h>
+#include <framewright/framewright.h>
 
 // Read with correct BT.709 color conversion
-cvffmpeg::VideoReader reader;
+framewright::VideoReader reader;
 reader.open("input.mp4", /*force_bt709=*/true);
 
 cv::Mat frame;
@@ -103,11 +103,11 @@ while (reader.read(frame)) {
 }
 
 // Write HDR10 HEVC
-cvffmpeg::VideoWriterOptions opts;
+framewright::VideoWriterOptions opts;
 opts.pix_fmt = AV_PIX_FMT_YUV420P10LE;
 opts.is_10bit = true;
 
-cvffmpeg::VideoWriter writer;
+framewright::VideoWriter writer;
 writer.open("output.mp4", AV_CODEC_ID_HEVC, 3840, 2160,
             {60000, 1001}, opts);  // 59.94 fps
 writer.write(hdr_frame);  // CV_16UC3 BGR
@@ -117,14 +117,14 @@ writer.release();
 ### Python
 
 ```python
-import cvffmpeg
+import framewright
 
-reader = cvffmpeg.VideoReader()
+reader = framewright.VideoReader()
 reader.open("input.mp4", force_bt709=True)
 for frame in reader:  # numpy (H, W, 3) uint8 BGR
     print(frame.shape, frame.dtype)
 
-writer = cvffmpeg.VideoWriter()
+writer = framewright.VideoWriter()
 writer.open("output.mp4", codec="h264", width=1920, height=1080, fps=30)
 writer.write(frame)
 writer.release()
@@ -137,27 +137,27 @@ writer.release()
 ```cmake
 include(FetchContent)
 FetchContent_Declare(
-    cvffmpeg
-    GIT_REPOSITORY https://github.com/kmatzen/cvffmpeg.git
+    framewright
+    GIT_REPOSITORY https://github.com/kmatzen/framewright.git
     GIT_TAG main
 )
-FetchContent_MakeAvailable(cvffmpeg)
+FetchContent_MakeAvailable(framewright)
 
-target_link_libraries(your_target PRIVATE cvffmpeg::cvffmpeg)
+target_link_libraries(your_target PRIVATE framewright::framewright)
 ```
 
 ### Standalone
 
 ```bash
 mkdir build && cd build
-cmake .. -DCVFFMPEG_BUILD_EXAMPLES=ON
+cmake .. -DFRAMEWRIGHT_BUILD_EXAMPLES=ON
 make -j$(nproc)
 ```
 
 ### Python
 
 ```bash
-pip install cvffmpeg
+pip install framewright
 ```
 
 ### Requirements
@@ -168,17 +168,17 @@ pip install cvffmpeg
 
 ## Logging
 
-By default, cvffmpeg only logs errors. To see informational output:
+By default, framewright only logs errors. To see informational output:
 
 ```cpp
-cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Info);     // See everything
-cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Error);    // Errors only (default)
-cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Quiet);    // Silence all output
+framewright::setLogLevel(framewright::LogLevel::Info);     // See everything
+framewright::setLogLevel(framewright::LogLevel::Error);    // Errors only (default)
+framewright::setLogLevel(framewright::LogLevel::Quiet);    // Silence all output
 ```
 
 ## API
 
-### `cvffmpeg::VideoReader`
+### `framewright::VideoReader`
 
 | Method | Description |
 |--------|-------------|
@@ -190,7 +190,7 @@ cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Quiet);    // Silence all output
 | `getColorSpace()`, `getColorRange()` | Color metadata |
 | `getFPS()`, `getWidth()`, `getHeight()` | Video properties |
 
-### `cvffmpeg::VideoWriter`
+### `framewright::VideoWriter`
 
 | Method | Description |
 |--------|-------------|
@@ -199,7 +199,7 @@ cvffmpeg::setLogLevel(cvffmpeg::LogLevel::Quiet);    // Silence all output
 | `setHDR10Metadata(metadata)` | Set mastering display / content light level |
 | `release()` | Flush and finalize the file |
 
-### `cvffmpeg::VideoWriterOptions`
+### `framewright::VideoWriterOptions`
 
 | Field | Default | Description |
 |-------|---------|-------------|

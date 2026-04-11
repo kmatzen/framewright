@@ -11,7 +11,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-namespace cvffmpeg {
+namespace framewright {
 
 /// HDR10 static metadata for mastering display and content light level.
 struct HDR10Metadata {
@@ -106,4 +106,4 @@ class VideoWriter {
     HDR10Metadata hdr10_metadata_;
 };
 
-} // namespace cvffmpeg
+} // namespace framewright

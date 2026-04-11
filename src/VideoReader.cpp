@@ -1,8 +1,8 @@
-#include "cvffmpeg/VideoReader.h"
+#include "framewright/VideoReader.h"
 
-#include "cvffmpeg/LogLevel.h"
+#include "framewright/LogLevel.h"
 
-namespace cvffmpeg {
+namespace framewright {
 
 VideoReader::VideoReader() {}
 
@@ -60,12 +60,12 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
     force_full_range_ = force_full_range;
 
     if (avformat_open_input(&formatCtx_, filename.c_str(), nullptr, nullptr) < 0) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not open file: " << filename << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not open file: " << filename << std::endl;
         return false;
     }
 
     if (avformat_find_stream_info(formatCtx_, nullptr) < 0) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not find stream information" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not find stream information" << std::endl;
         cleanup();
         return false;
     }
@@ -79,7 +79,7 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
     }
 
     if (videoStreamIndex_ == -1) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not find video stream" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not find video stream" << std::endl;
         cleanup();
         return false;
     }
@@ -89,26 +89,26 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
 
     const AVCodec* codec = avcodec_find_decoder(codecpar->codec_id);
     if (!codec) {
-        detail::log(LogLevel::Info) << "cvffmpeg::VideoReader: Unsupported codec" << std::endl;
+        detail::log(LogLevel::Info) << "framewright::VideoReader: Unsupported codec" << std::endl;
         cleanup();
         return false;
     }
 
     codecCtx_ = avcodec_alloc_context3(codec);
     if (!codecCtx_) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not allocate codec context" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not allocate codec context" << std::endl;
         cleanup();
         return false;
     }
 
     if (avcodec_parameters_to_context(codecCtx_, codecpar) < 0) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not copy codec parameters" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not copy codec parameters" << std::endl;
         cleanup();
         return false;
     }
 
     if (avcodec_open2(codecCtx_, codec, nullptr) < 0) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not open codec" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not open codec" << std::endl;
         cleanup();
         return false;
     }
@@ -122,7 +122,7 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
         fps_ = av_q2d(stream->r_frame_rate);
     } else {
         fps_ = 0.0;
-        std::cerr << "cvffmpeg::VideoReader: Warning: frame rate not available, getFPS() will "
+        std::cerr << "framewright::VideoReader: Warning: frame rate not available, getFPS() will "
                      "return 0"
                   << std::endl;
     }
@@ -136,7 +136,7 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
     frame_ = av_frame_alloc();
     frameBGR_ = av_frame_alloc();
     if (!frame_ || !frameBGR_) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not allocate frame" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not allocate frame" << std::endl;
         cleanup();
         return false;
     }
@@ -145,14 +145,14 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
     frameBGR_->width = width_;
     frameBGR_->height = height_;
     if (av_frame_get_buffer(frameBGR_, 32) < 0) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not allocate frame buffer" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not allocate frame buffer" << std::endl;
         cleanup();
         return false;
     }
 
     packet_ = av_packet_alloc();
     if (!packet_) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not allocate packet" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not allocate packet" << std::endl;
         cleanup();
         return false;
     }
@@ -162,7 +162,7 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
         return false;
     }
 
-    detail::log(LogLevel::Info) << "cvffmpeg::VideoReader: Opened " << filename << std::endl;
+    detail::log(LogLevel::Info) << "framewright::VideoReader: Opened " << filename << std::endl;
     detail::log(LogLevel::Info) << "  Resolution: " << width_ << "x" << height_ << std::endl;
     detail::log(LogLevel::Info) << "  FPS: " << fps_ << std::endl;
     detail::log(LogLevel::Info) << "  Pixel format: " << av_get_pix_fmt_name(codecCtx_->pix_fmt) << std::endl;
@@ -189,7 +189,7 @@ bool VideoReader::setupScaler() {
                              SWS_LANCZOS, nullptr, nullptr, nullptr);
 
     if (!swsCtx_) {
-        detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Could not create scaler context" << std::endl;
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not create scaler context" << std::endl;
         return false;
     }
 
@@ -251,13 +251,13 @@ bool VideoReader::read(cv::Mat& frame) {
             if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
                 return false;
             } else if (ret < 0) {
-                detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Error receiving flushed frame" << std::endl;
+                detail::log(LogLevel::Error) << "framewright::VideoReader: Error receiving flushed frame" << std::endl;
                 return false;
             }
 
             if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
                           frameBGR_->linesize) < 0) {
-                detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: sws_scale failed" << std::endl;
+                detail::log(LogLevel::Error) << "framewright::VideoReader: sws_scale failed" << std::endl;
                 return false;
             }
 
@@ -282,7 +282,7 @@ bool VideoReader::read(cv::Mat& frame) {
         av_packet_unref(packet_);
 
         if (ret < 0) {
-            detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Error sending packet to decoder" << std::endl;
+            detail::log(LogLevel::Error) << "framewright::VideoReader: Error sending packet to decoder" << std::endl;
             return false;
         }
 
@@ -290,13 +290,13 @@ bool VideoReader::read(cv::Mat& frame) {
         if (ret == AVERROR(EAGAIN)) {
             continue;
         } else if (ret < 0) {
-            detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: Error receiving frame from decoder" << std::endl;
+            detail::log(LogLevel::Error) << "framewright::VideoReader: Error receiving frame from decoder" << std::endl;
             return false;
         }
 
         if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
                       frameBGR_->linesize) < 0) {
-            detail::log(LogLevel::Error) << "cvffmpeg::VideoReader: sws_scale failed" << std::endl;
+            detail::log(LogLevel::Error) << "framewright::VideoReader: sws_scale failed" << std::endl;
             return false;
         }
 
@@ -349,7 +349,7 @@ bool VideoReader::seek(int64_t frame_number) {
         int ret = av_seek_frame(formatCtx_, videoStreamIndex_, target_ts, AVSEEK_FLAG_BACKWARD);
         if (ret < 0) {
             detail::log(LogLevel::Error)
-                << "cvffmpeg::VideoReader: Keyframe seek failed" << std::endl;
+                << "framewright::VideoReader: Keyframe seek failed" << std::endl;
             return false;
         }
 
@@ -449,4 +449,4 @@ AVColorTransferCharacteristic VideoReader::getColorTransfer() const {
     return codecCtx_ ? codecCtx_->color_trc : AVCOL_TRC_UNSPECIFIED;
 }
 
-} // namespace cvffmpeg
+} // namespace framewright

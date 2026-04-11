@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-namespace cvffmpeg {
+namespace framewright {
 
 enum class LogLevel { Quiet, Error, Warning, Info };
 
@@ -20,4 +20,4 @@ std::ostream& log(LogLevel level);
 
 } // namespace detail
 
-} // namespace cvffmpeg
+} // namespace framewright

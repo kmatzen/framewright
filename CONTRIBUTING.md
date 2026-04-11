@@ -1,14 +1,14 @@
-# Contributing to cvffmpeg
+# Contributing to framewright
 
 Thanks for your interest in contributing! Here's how to get started.
 
 ## Building from source
 
 ```bash
-git clone https://github.com/kmatzen/cvffmpeg.git
-cd cvffmpeg
+git clone https://github.com/kmatzen/framewright.git
+cd framewright
 mkdir build && cd build
-cmake .. -DCVFFMPEG_BUILD_EXAMPLES=ON -DCVFFMPEG_BUILD_TESTS=ON
+cmake .. -DFRAMEWRIGHT_BUILD_EXAMPLES=ON -DFRAMEWRIGHT_BUILD_TESTS=ON
 make -j$(nproc)
 ```
 
