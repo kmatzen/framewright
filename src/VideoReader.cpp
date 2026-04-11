@@ -116,12 +116,15 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
     width_ = codecCtx_->width;
     height_ = codecCtx_->height;
 
-    if (stream->avg_frame_rate.den != 0) {
+    if (stream->avg_frame_rate.num != 0 && stream->avg_frame_rate.den != 0) {
         fps_ = av_q2d(stream->avg_frame_rate);
-    } else if (stream->r_frame_rate.den != 0) {
+    } else if (stream->r_frame_rate.num != 0 && stream->r_frame_rate.den != 0) {
         fps_ = av_q2d(stream->r_frame_rate);
     } else {
-        fps_ = 30.0;
+        fps_ = 0.0;
+        std::cerr << "cvffmpeg::VideoReader: Warning: frame rate not available, getFPS() will "
+                     "return 0"
+                  << std::endl;
     }
 
     if (stream->nb_frames > 0) {
