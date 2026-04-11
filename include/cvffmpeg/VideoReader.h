@@ -40,7 +40,15 @@ class VideoReader {
               bool force_full_range = false);
 
     /// Read the next frame as a BGR cv::Mat (same convention as OpenCV).
+    /// The returned Mat owns its data and remains valid indefinitely.
     bool read(cv::Mat& frame);
+
+    /// Read the next frame without copying pixel data.
+    /// The returned Mat wraps an internal buffer and is only valid until
+    /// the next call to read(), readRef(), seek(), close(), or the
+    /// destruction of this VideoReader. Use this for performance-critical
+    /// paths where you consume or copy the frame immediately.
+    bool readRef(cv::Mat& frame);
 
     /// Seek forward to a specific frame number (forward-only, best effort).
     bool seek(int64_t frame_number);
@@ -67,6 +75,7 @@ class VideoReader {
   private:
     void cleanup();
     bool setupScaler();
+    bool decodeNextFrame();
 
     AVFormatContext* formatCtx_ = nullptr;
     AVCodecContext* codecCtx_ = nullptr;
