@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ------------------------------------------------------------------------------
 option(CVFFMPEG_BUILD_EXAMPLES "Build example programs" OFF)
 option(CVFFMPEG_BUILD_TESTS "Build tests" OFF)
+option(CVFFMPEG_BUILD_PYTHON "Build Python bindings" OFF)
 
 # ------------------------------------------------------------------------------
 # Dependencies
@@ -187,6 +188,17 @@ if(CVFFMPEG_BUILD_TESTS)
     endif()
 
     add_test(NAME cvffmpeg_tests COMMAND cvffmpeg_tests)
+endif()
+
+# ------------------------------------------------------------------------------
+# Python bindings
+# ------------------------------------------------------------------------------
+if(CVFFMPEG_BUILD_PYTHON)
+    find_package(pybind11 CONFIG REQUIRED)
+
+    pybind11_add_module(_cvffmpeg python/bindings.cpp)
+    target_link_libraries(_cvffmpeg PRIVATE cvffmpeg)
+    install(TARGETS _cvffmpeg DESTINATION .)
 endif()
 
 # ------------------------------------------------------------------------------
