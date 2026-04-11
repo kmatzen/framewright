@@ -49,6 +49,7 @@ class VideoReader {
     // Properties
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
+    /// Get the frame rate. Returns 0.0 if the container does not report one.
     double getFPS() const { return fps_; }
 
     /// Get the total frame count. Returns -1 if the container does not
