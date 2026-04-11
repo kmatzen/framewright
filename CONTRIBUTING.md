@@ -1,0 +1,50 @@
+# Contributing to cvffmpeg
+
+Thanks for your interest in contributing! Here's how to get started.
+
+## Building from source
+
+```bash
+git clone https://github.com/kmatzen/cvffmpeg.git
+cd cvffmpeg
+mkdir build && cd build
+cmake .. -DCVFFMPEG_BUILD_EXAMPLES=ON -DCVFFMPEG_BUILD_TESTS=ON
+make -j$(nproc)
+```
+
+### Requirements
+
+- C++17 compiler
+- OpenCV 4.0+
+- FFmpeg 4.2+ (libavformat, libavcodec, libswscale, libavutil)
+- For tests: ffmpeg and ffprobe CLI tools (for generating test fixtures)
+
+## Running tests
+
+```bash
+cd build
+ctest --output-on-failure
+```
+
+## Submitting changes
+
+1. Fork the repository and create a branch from `main`.
+2. Make your changes. Keep commits focused — one logical change per commit.
+3. Make sure the project builds cleanly and tests pass.
+4. Open a pull request against `main`.
+
+## Code style
+
+- Use trailing underscores for private member variables (`width_`, `formatCtx_`).
+- Match the existing formatting (clang-format is not enforced yet, but keep it consistent).
+- Error messages go to `std::cerr` with a `cvffmpeg::ClassName:` prefix.
+- Check return values from FFmpeg API calls.
+- Free resources on all error paths in `open()` methods.
+
+## Reporting bugs
+
+Open an issue on GitHub with:
+- What you expected to happen
+- What actually happened
+- A minimal reproducer if possible
+- Your OS, compiler, OpenCV version, and FFmpeg version
