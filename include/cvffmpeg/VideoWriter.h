@@ -25,6 +25,16 @@ struct HDR10Metadata {
     unsigned int max_fall = 400;
 };
 
+/// Options for VideoWriter::open().
+struct VideoWriterOptions {
+    int bitrate = 25000000;                    ///< Target bitrate in bits/sec.
+    AVPixelFormat pix_fmt = AV_PIX_FMT_YUV420P; ///< Output pixel format.
+    bool is_10bit = false;   ///< Enable HDR10 mode (BT.2020 + PQ + mastering display metadata).
+    bool full_range = false; ///< Use full range (0-255) instead of limited (16-235).
+    bool use_444 = false;    ///< Use 4:4:4 chroma (no subsampling).
+    bool lossless = false;   ///< Enable mathematically lossless encoding.
+};
+
 /// Video writer with explicit color space control and HDR10 support.
 ///
 /// Unlike cv::VideoWriter, this class gives you direct control over:
@@ -52,16 +62,15 @@ class VideoWriter {
     /// @param width      Frame width.
     /// @param height     Frame height.
     /// @param framerate  Frame rate as AVRational (e.g., {60000, 1001} for 59.94fps).
-    /// @param bitrate    Target bitrate in bits/sec (default 25 Mbps).
-    /// @param pix_fmt    Output pixel format (default YUV420P).
-    /// @param is_10bit   Enable HDR10 mode (BT.2020 + PQ + mastering display metadata).
-    /// @param full_range Use full range (0-255) instead of limited (16-235).
-    /// @param use_444    Use 4:4:4 chroma (no subsampling).
-    /// @param lossless   Enable mathematically lossless encoding.
+    /// @param opts       Encoding options (bitrate, pixel format, HDR, lossless, etc.).
     bool open(const std::string& filename, int codec_id, int width, int height,
-              AVRational framerate, int bitrate = 25000000,
-              AVPixelFormat pix_fmt = AV_PIX_FMT_YUV420P, bool is_10bit = false,
-              bool full_range = false, bool use_444 = false, bool lossless = false);
+              AVRational framerate, const VideoWriterOptions& opts = {});
+
+    /// @deprecated Use the VideoWriterOptions overload instead.
+    bool open(const std::string& filename, int codec_id, int width, int height,
+              AVRational framerate, int bitrate,
+              AVPixelFormat pix_fmt, bool is_10bit,
+              bool full_range, bool use_444, bool lossless);
 
     /// Write a BGR frame (CV_8UC3 or CV_16UC3).
     bool write(const cv::Mat& image);
