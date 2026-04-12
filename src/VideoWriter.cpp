@@ -102,6 +102,22 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                   << std::endl;
     }
 
+    bool is_10bit_pix_fmt_early =
+        (pix_fmt == AV_PIX_FMT_YUV420P10LE || pix_fmt == AV_PIX_FMT_YUV422P10LE ||
+         pix_fmt == AV_PIX_FMT_YUV444P10LE);
+
+    // H.264 does not support HDR10 or 10-bit pixel formats — reject early
+    if (codec_id == AV_CODEC_ID_H264 && is_10bit) {
+        detail::log(LogLevel::Error)
+            << "H.264 does not support HDR10 (BT.2020 + PQ). Use HEVC instead." << std::endl;
+        return false;
+    }
+    if (codec_id == AV_CODEC_ID_H264 && is_10bit_pix_fmt_early) {
+        detail::log(LogLevel::Error)
+            << "H.264 does not support 10-bit pixel formats. Use HEVC instead." << std::endl;
+        return false;
+    }
+
     avformat_alloc_output_context2(&formatCtx_, nullptr, nullptr, filename.c_str());
     if (!formatCtx_) {
         detail::log(LogLevel::Error) << "Failed to allocate output context." << std::endl;
@@ -110,10 +126,6 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
     }
 
     const AVCodec* codec = nullptr;
-
-    bool is_10bit_pix_fmt_early =
-        (pix_fmt == AV_PIX_FMT_YUV420P10LE || pix_fmt == AV_PIX_FMT_YUV422P10LE ||
-         pix_fmt == AV_PIX_FMT_YUV444P10LE);
 
     // Use libx265 software encoder for all HEVC 10-bit
     if (codec_id == AV_CODEC_ID_HEVC && (is_10bit || is_10bit_pix_fmt_early)) {
@@ -233,6 +245,27 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 
         detail::log(LogLevel::Info) << "HEVC 10-bit SDR encoding (Main10, BT.709, "
                   << (full_range_ ? "full" : "limited") << " range)" << std::endl;
+    } else if (!is_10bit && !is_10bit_pix_fmt_early && codec_id == AV_CODEC_ID_HEVC) {
+        // HEVC 8-bit SDR — mirror H.264 options for consistency
+        if (lossless) {
+            av_dict_set(&opts, "preset", "medium", 0);
+            av_dict_set(&opts, "x265-params",
+                        "lossless=1:colorprim=bt709:transfer=bt709:colormatrix=bt709:range=pc",
+                        0);
+            detail::log(LogLevel::Info) << "HEVC lossless encoding (8-bit, 4:4:4)" << std::endl;
+        } else {
+            av_dict_set(&opts, "preset", "medium", 0);
+            av_dict_set(&opts, "crf", "10", 0);
+
+            const char* x265_params =
+                full_range_
+                    ? "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=pc"
+                    : "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=tv";
+            av_dict_set(&opts, "x265-params", x265_params, 0);
+
+            detail::log(LogLevel::Info) << "HEVC 8-bit SDR encoding (BT.709, "
+                      << (full_range_ ? "full" : "limited") << " range)" << std::endl;
+        }
     } else if (!is_10bit && codec_id == AV_CODEC_ID_H264) {
         if (lossless) {
             av_dict_set(&opts, "preset", "medium", 0);
@@ -242,7 +275,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                         "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=pc", 0);
             detail::log(LogLevel::Info) << "H.264 lossless encoding (qp=0, 4:4:4)" << std::endl;
         } else {
-            av_dict_set(&opts, "preset", "slow", 0);
+            av_dict_set(&opts, "preset", "medium", 0);
             if (use_444_) {
                 av_dict_set(&opts, "profile", "high444", 0);
             } else {
@@ -274,10 +307,13 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 
     avcodec_parameters_from_context(videoStream_->codecpar, codecCtx_);
 
-    // Set codec tag to 'hvc1' for QuickTime compatibility
+    // Set explicit codec tags for QuickTime compatibility
     if (codec_id == AV_CODEC_ID_HEVC) {
         videoStream_->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
         detail::log(LogLevel::Info) << "Set codec tag to hvc1 for QuickTime compatibility" << std::endl;
+    } else if (codec_id == AV_CODEC_ID_H264) {
+        videoStream_->codecpar->codec_tag = MKTAG('a', 'v', 'c', '1');
+        detail::log(LogLevel::Info) << "Set codec tag to avc1 for QuickTime compatibility" << std::endl;
     }
 
     if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
