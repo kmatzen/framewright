@@ -43,15 +43,31 @@ jobs:
           # so needs an explicit prefix.
           echo "CMAKE_PREFIX_PATH=$(brew --prefix opencv@4)" >> "$GITHUB_ENV"
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python build dependencies
+        run: pip install pybind11 numpy pytest
+
       - name: Configure
         run: |
           cmake -B build \
             -DFRAMEWRIGHT_BUILD_TESTS=ON \
             -DFRAMEWRIGHT_BUILD_EXAMPLES=ON \
+            -DFRAMEWRIGHT_BUILD_PYTHON=ON \
+            -Dpybind11_DIR=$(python3 -c "import pybind11; print(pybind11.get_cmake_dir())") \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
 
-      - name: Test
+      - name: Test (C++)
         run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      - name: Test (Python)
+        run: |
+          export PYTHONPATH="$PWD/build:$PWD/python"
+          export TEST_FIXTURES_DIR="$PWD/build/test_fixtures"
+          pytest python/tests/ -v
