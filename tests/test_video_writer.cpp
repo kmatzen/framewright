@@ -222,6 +222,53 @@ TEST_CASE("VideoWriter HEVC 10-bit HDR", "[writer][hdr]") {
     remove_file(path);
 }
 
+TEST_CASE("VideoWriter rejects H.264 with HDR10", "[writer]") {
+    std::string path = temp_path("writer_h264_hdr10.mp4");
+
+    framewright::VideoWriter writer;
+    bool opened = writer.open(path, AV_CODEC_ID_H264, 640, 480, {30, 1},
+                              25000000, AV_PIX_FMT_YUV420P10LE, true, false, false, false);
+    CHECK_FALSE(opened);
+
+    remove_file(path);
+}
+
+TEST_CASE("VideoWriter rejects H.264 with 10-bit pixel format", "[writer]") {
+    std::string path = temp_path("writer_h264_10bit.mp4");
+
+    framewright::VideoWriter writer;
+    bool opened = writer.open(path, AV_CODEC_ID_H264, 640, 480, {30, 1},
+                              25000000, AV_PIX_FMT_YUV420P10LE, false, false, false, false);
+    CHECK_FALSE(opened);
+
+    remove_file(path);
+}
+
+TEST_CASE("VideoWriter creates HEVC 8-bit SDR", "[writer]") {
+    std::string path = temp_path("writer_hevc_8bit.mp4");
+
+    {
+        framewright::VideoWriter writer;
+        bool opened = writer.open(path, AV_CODEC_ID_HEVC, 640, 480, {30, 1});
+        if (!opened) {
+            SKIP("HEVC encoder not available");
+        }
+
+        cv::Mat frame = make_frame(640, 480, {128, 64, 32});
+        REQUIRE(writer.write(frame));
+        REQUIRE(writer.write(frame));
+        writer.release();
+    }
+
+    FILE* f = fopen(path.c_str(), "rb");
+    REQUIRE(f != nullptr);
+    fseek(f, 0, SEEK_END);
+    CHECK(ftell(f) > 0);
+    fclose(f);
+
+    remove_file(path);
+}
+
 TEST_CASE("VideoWriter FFV1 lossless", "[writer]") {
     std::string path = temp_path("writer_ffv1.mkv");
 
