@@ -151,6 +151,24 @@ PYBIND11_MODULE(_framewright, m) {
             const AVCodec* codec = avcodec_find_decoder(id);
             return codec ? codec->name : "none";
         })
+        .def_property_readonly("color_space", [](const framewright::VideoReader& self) -> std::string {
+            const char* name = av_color_space_name(self.getColorSpace());
+            return name ? name : "unknown";
+        })
+        .def_property_readonly("color_range", [](const framewright::VideoReader& self) -> std::string {
+            const char* name = av_color_range_name(self.getColorRange());
+            return name ? name : "unknown";
+        })
+        .def_property_readonly("color_primaries", [](const framewright::VideoReader& self) -> std::string {
+            const char* name = av_color_primaries_name(self.getColorPrimaries());
+            return name ? name : "unknown";
+        })
+        .def_property_readonly("color_transfer", [](const framewright::VideoReader& self) -> std::string {
+            const char* name = av_color_transfer_name(self.getColorTransfer());
+            return name ? name : "unknown";
+        })
+        .def_property_readonly("forcing_bt709", &framewright::VideoReader::isForcingBT709)
+        .def_property_readonly("forcing_full_range", &framewright::VideoReader::isForcingFullRange)
         .def("__enter__", [](framewright::VideoReader& self) -> framewright::VideoReader& {
             return self;
         })
