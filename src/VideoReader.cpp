@@ -338,18 +338,27 @@ bool VideoReader::seek(int64_t frame_number) {
         (frame_number < current_frame_) || (frame_number - current_frame_ > 50);
 
     if (need_keyframe_seek) {
-        int64_t target_ts;
-        if (stream->avg_frame_rate.num != 0 && stream->avg_frame_rate.den != 0) {
-            target_ts = av_rescale_q(frame_number,
-                                     av_inv_q(stream->avg_frame_rate),
-                                     stream->time_base);
-        } else {
-            AVRational fps = stream->r_frame_rate;
-            if (fps.num == 0 || fps.den == 0) {
-                fps = {30, 1};
-            }
-            target_ts = av_rescale_q(frame_number, av_inv_q(fps), stream->time_base);
+        // Keyframe seeking needs a frame rate twice: to turn the requested
+        // frame index into a target timestamp, and to turn the landing
+        // timestamp back into an index. If the container declares none there
+        // is no honest way to do either, so fail here rather than proceed on a
+        // fabricated rate -- getFPS() reports 0.0 in exactly this case, and the
+        // two must not disagree.
+        AVRational seek_fps =
+            (stream->avg_frame_rate.num != 0 && stream->avg_frame_rate.den != 0)
+                ? stream->avg_frame_rate
+                : stream->r_frame_rate;
+
+        if (seek_fps.num == 0 || seek_fps.den == 0) {
+            detail::log(LogLevel::Error)
+                << "framewright::VideoReader: Cannot seek by frame number without a frame rate"
+                << std::endl;
+            return false;
         }
+
+        const double frame_duration = av_q2d(av_inv_q(seek_fps));
+        const int64_t target_ts =
+            av_rescale_q(frame_number, av_inv_q(seek_fps), stream->time_base);
 
         auto seek_to_keyframe = [&]() -> bool {
             int ret =
@@ -375,11 +384,6 @@ bool VideoReader::seek(int64_t frame_number) {
         if (!read(tempFrame)) {
             return false;
         }
-
-        AVRational seek_fps =
-            stream->avg_frame_rate.num != 0 ? stream->avg_frame_rate : stream->r_frame_rate;
-        double frame_duration =
-            (seek_fps.num != 0 && seek_fps.den != 0) ? av_q2d(av_inv_q(seek_fps)) : 0.0;
 
         // Without a usable timestamp there is no way to know where we landed.
         // Rewind to the start so the reader is left in a position it can
