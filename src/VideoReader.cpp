@@ -242,8 +242,13 @@ bool VideoReader::read(cv::Mat& frame) {
     while (true) {
         int ret = av_read_frame(formatCtx_, packet_);
         if (ret < 0) {
+            // Enter (or stay in) draining mode. Once draining has begun,
+            // further flush packets return AVERROR_EOF -- that is expected,
+            // not a failure, and the decoder may still be holding frames from
+            // its reorder buffer. Treating it as fatal here would return only
+            // the first buffered frame and silently truncate the stream.
             ret = avcodec_send_packet(codecCtx_, nullptr);
-            if (ret < 0) {
+            if (ret < 0 && ret != AVERROR_EOF) {
                 return false;
             }
 
