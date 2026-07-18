@@ -14,7 +14,19 @@ option(FRAMEWRIGHT_BUILD_PYTHON "Build Python bindings" OFF)
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-find_package(OpenCV 4.0 REQUIRED)
+# Deliberately unversioned. OpenCV's config treats major versions as
+# incompatible, so find_package(OpenCV 4.0) rejects 5.x outright -- which is
+# what broke macOS CI when Homebrew moved the opencv formula to 5.0. The
+# floor is enforced below instead, so a genuinely too-old OpenCV still fails
+# loudly while newer majors are allowed through. See #56.
+find_package(OpenCV REQUIRED)
+
+if(OpenCV_VERSION VERSION_LESS 4.0)
+    message(FATAL_ERROR
+        "framewright requires OpenCV 4.0 or newer, found ${OpenCV_VERSION}")
+endif()
+
+message(STATUS "OpenCV: ${OpenCV_VERSION}")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED
     libavformat>=58.29   # FFmpeg 4.2+

@@ -14,8 +14,15 @@ jobs:
         include:
           - os: ubuntu-24.04
             name: Linux
+          # Both OpenCV majors are covered. Pinning only to opencv@4 would let
+          # a 5.x incompatibility land unnoticed; testing only 5 would drop the
+          # version most distributions still ship. See #56.
           - os: macos-latest
-            name: macOS
+            name: macOS (OpenCV 4)
+            opencv: opencv@4
+          - os: macos-latest
+            name: macOS (OpenCV 5)
+            opencv: opencv
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.name }}
@@ -37,11 +44,10 @@ jobs:
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install opencv@4 ffmpeg pkg-config x264 x265
-          # Homebrew's `opencv` formula is now 5.x, which CMakeLists.txt does
-          # not accept (see #56). Pin to the 4.x formula, which is keg-only and
-          # so needs an explicit prefix.
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix opencv@4)" >> "$GITHUB_ENV"
+          brew install ${{ matrix.opencv }} ffmpeg pkg-config x264 x265
+          # opencv@4 is keg-only, so it needs an explicit prefix; the
+          # unversioned formula does not, but pointing at it is harmless.
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix ${{ matrix.opencv }})" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v5
