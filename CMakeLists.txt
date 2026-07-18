@@ -165,9 +165,31 @@ if(FRAMEWRIGHT_BUILD_TESTS)
         )
         if(SEEK_FIXTURE_RESULT EQUAL 0)
             set(HAVE_SEEK_FIXTURE TRUE)
+            message(STATUS "seek fixture: enabled")
         else()
             set(HAVE_SEEK_FIXTURE FALSE)
-            message(STATUS "seek fixture could not be generated, seek tests skipped")
+            message(STATUS "seek fixture: DISABLED, seek tests will not run")
+        endif()
+
+        # Same content encoded with B-frames, so the decoder's reorder buffer
+        # is exercised. -qp 0 makes x264 emit all I/P regardless of -bf, hence
+        # the explicit x264-params and a lossy-but-near-transparent CRF; the
+        # luma step of 3 survives it comfortably.
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi
+                -i "color=c=black:s=64x64:r=30:d=2,format=yuv420p,geq=lum='16+3*N':cb='128':cr='128'"
+                -c:v libx264 -crf 12 -g 30 -keyint_min 30 -sc_threshold 0
+                -x264-params "bframes=2:b-adapt=0" -pix_fmt yuv420p
+                "${TEST_FIXTURES_DIR}/seek_numbered_bframes.mp4"
+            RESULT_VARIABLE SEEK_BF_FIXTURE_RESULT
+            OUTPUT_QUIET ERROR_QUIET
+        )
+        if(SEEK_BF_FIXTURE_RESULT EQUAL 0)
+            set(HAVE_SEEK_BFRAME_FIXTURE TRUE)
+            message(STATUS "seek B-frame fixture: enabled")
+        else()
+            set(HAVE_SEEK_BFRAME_FIXTURE FALSE)
+            message(STATUS "seek B-frame fixture: DISABLED, reordering tests will not run")
         endif()
 
         # 10-bit HDR (BT.2020 + PQ) - only if libx265 is available
@@ -214,6 +236,10 @@ if(FRAMEWRIGHT_BUILD_TESTS)
 
     if(HAVE_SEEK_FIXTURE)
         target_compile_definitions(framewright_tests PRIVATE HAVE_SEEK_FIXTURE)
+    endif()
+
+    if(HAVE_SEEK_BFRAME_FIXTURE)
+        target_compile_definitions(framewright_tests PRIVATE HAVE_SEEK_BFRAME_FIXTURE)
     endif()
 
     add_test(NAME framewright_tests COMMAND framewright_tests)

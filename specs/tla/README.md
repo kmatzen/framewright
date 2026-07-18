@@ -87,7 +87,12 @@ worse:
 - the frame-index ↔ timestamp round trip is exact, ignoring the `+ 0.5`
   rounding and `av_rescale_q` truncation;
 - the decoder emits exactly one frame per packet, ignoring reorder-buffer
-  delay after `avcodec_flush_buffers()`;
+  delay after `avcodec_flush_buffers()`. This assumption is *not* verified by
+  the model, but it is now covered empirically: the `[seek]` cases also run
+  against `seek_numbered_bframes.mp4`, encoded with B-frames so decode and
+  presentation order differ, and all of them pass unchanged. Building that
+  fixture is what exposed #59 — the reorder buffer was not being drained at
+  EOF, silently costing the last frame of every B-frame file;
 - error paths other than EOF are not modelled.
 
 It also models a single reader with no concurrency — that is faithful, since
