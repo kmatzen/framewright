@@ -1,0 +1,63 @@
+name: TLA+
+
+# Model-checks specs/tla/VideoReaderSeek.tla, which transcribes the seek()
+# state machine in src/VideoReader.cpp. The spec's whole value is being a
+# faithful transcription, so a stale one is worse than none -- it reads like
+# verification while asserting nothing about the shipped code.
+#
+# Note what this does and does not catch. It catches the model breaking on its
+# own terms: an edit that makes an invariant refutable. It CANNOT catch the
+# model drifting away from the C++ -- that still needs a human to re-read both.
+# specs/tla/README.md documents the mapping, with line references, to make that
+# re-read tractable.
+
+on:
+  push:
+    branches: [main]
+    paths: ['specs/tla/**', 'src/VideoReader.cpp', '.github/workflows/tla.yml']
+  pull_request:
+    branches: [main]
+    paths: ['specs/tla/**', 'src/VideoReader.cpp', '.github/workflows/tla.yml']
+
+jobs:
+  model-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Fetch TLC
+        run: |
+          curl -fsSL -o tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+
+      - name: Check all configurations
+        working-directory: specs/tla
+        run: |
+          set -uo pipefail
+          failed=0
+          for cfg in VideoReaderSeek NoPts Overrun FailedSeek Faithful50; do
+            echo "::group::$cfg"
+            java -XX:+UseParallelGC -cp "$GITHUB_WORKSPACE/tla2tools.jar" tlc2.TLC \
+              -nowarning -config "$cfg.cfg" VideoReaderSeek.tla > "/tmp/$cfg.out" 2>&1
+            status=$?
+            cat "/tmp/$cfg.out"
+
+            # TLC exits non-zero on an invariant violation (12, verified
+            # locally against a deliberately falsified invariant). The success
+            # string is checked as well, so that a run which exits 0 without
+            # actually completing the search cannot pass silently.
+            if [ $status -eq 0 ] \
+               && grep -q "Model checking completed. No error has been found." "/tmp/$cfg.out"; then
+              echo "$cfg: OK"
+            else
+              echo "::error::$cfg: model check failed (exit $status)"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
