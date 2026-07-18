@@ -258,6 +258,43 @@ TEST_CASE("VideoReader seek past the end fails", "[reader][seek]") {
     CHECK_FALSE(reader.seek(kSeekFixtureFrames + 100));
 }
 
+// A seek that cannot succeed should be rejected outright, not by scanning to
+// EOF and discovering the failure there. The observable difference is the
+// position: rejecting early leaves the reader where it was, whereas the old
+// scan consumed the rest of the file first. See #67.
+TEST_CASE("VideoReader rejects out-of-range seek without moving", "[reader][seek]") {
+    const std::string path = fixtures + "/seek_numbered.mp4";
+    const std::vector<int> ref = seekReference(path);
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+    REQUIRE(reader.getFrameCount() == kSeekFixtureFrames);
+
+    cv::Mat frame;
+    for (int i = 0; i < 5; i++) REQUIRE(reader.read(frame));
+    REQUIRE(reader.getCurrentFrameNumber() == 5);
+
+    CHECK_FALSE(reader.seek(kSeekFixtureFrames));       // one past the last valid index
+    CHECK_FALSE(reader.seek(kSeekFixtureFrames + 100));
+
+    // Still at frame 5, and the next read still returns frame 5.
+    CHECK(reader.getCurrentFrameNumber() == 5);
+    REQUIRE(reader.read(frame));
+    CHECK(identifyFrame(frame, ref) == 5);
+}
+
+TEST_CASE("VideoReader reports unknown frame count after close", "[reader]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/seek_numbered.mp4"));
+    CHECK(reader.getFrameCount() > 0);
+
+    reader.close();
+
+    // -1 is "unknown", as documented on getFrameCount(). 0 would read as a
+    // real count of zero frames.
+    CHECK(reader.getFrameCount() == -1);
+}
+
 #endif // HAVE_SEEK_FIXTURE
 
 TEST_CASE("VideoReader close and reopen", "[reader]") {
