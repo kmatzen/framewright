@@ -141,10 +141,12 @@ int identifyFrame(const cv::Mat& m, const std::vector<int>& ref) {
     return bestDist <= 1 ? best : -1;
 }
 
-} // namespace
-
-TEST_CASE("VideoReader seek lands on the frame it reports", "[reader][seek]") {
-    const std::string path = fixtures + "/seek_numbered.mp4";
+// The seek contract, checked against whichever numbered fixture is given.
+// Run against both the all-I/P fixture and the B-frame one: the latter makes
+// the decoder hold frames in a reorder buffer, so decode order and
+// presentation order differ and seek()'s pts-based position recovery has to
+// cope with that.
+void checkSeekCases(const std::string& path) {
     const std::vector<int> ref = seekReference(path);
     REQUIRE(ref.size() == static_cast<size_t>(kSeekFixtureFrames));
 
@@ -179,7 +181,7 @@ TEST_CASE("VideoReader seek lands on the frame it reports", "[reader][seek]") {
     };
 
     for (const Case& c : cases) {
-        INFO("seek from " << c.from << " to " << c.target);
+        INFO("seek from " << c.from << " to " << c.target << " in " << path);
 
         framewright::VideoReader reader;
         REQUIRE(reader.open(path));
@@ -195,6 +197,33 @@ TEST_CASE("VideoReader seek lands on the frame it reports", "[reader][seek]") {
         REQUIRE(reader.read(frame));
         CHECK(identifyFrame(frame, ref) == c.target);
     }
+}
+
+} // namespace
+
+TEST_CASE("VideoReader seek lands on the frame it reports", "[reader][seek]") {
+    checkSeekCases(fixtures + "/seek_numbered.mp4");
+}
+
+#ifdef HAVE_SEEK_BFRAME_FIXTURE
+TEST_CASE("VideoReader seek lands on the frame it reports (B-frames)", "[reader][seek]") {
+    checkSeekCases(fixtures + "/seek_numbered_bframes.mp4");
+}
+#endif
+
+// Regression for #59: the decoder's reorder buffer must be fully drained at
+// EOF. Sending a second flush packet returns AVERROR_EOF, and treating that as
+// fatal used to strand every buffered frame but the first -- silently costing
+// the tail of any B-frame encoded file.
+TEST_CASE("VideoReader reads every frame through to EOF", "[reader][seek]") {
+    CHECK(seekReference(fixtures + "/seek_numbered.mp4").size()
+          == static_cast<size_t>(kSeekFixtureFrames));
+
+#ifdef HAVE_SEEK_BFRAME_FIXTURE
+    INFO("B-frame fixture: decoder holds frames in a reorder buffer at EOF");
+    CHECK(seekReference(fixtures + "/seek_numbered_bframes.mp4").size()
+          == static_cast<size_t>(kSeekFixtureFrames));
+#endif
 }
 
 TEST_CASE("VideoReader seek leaves the position counter consistent", "[reader][seek]") {
