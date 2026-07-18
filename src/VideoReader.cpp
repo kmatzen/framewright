@@ -346,31 +346,71 @@ bool VideoReader::seek(int64_t frame_number) {
             target_ts = av_rescale_q(frame_number, av_inv_q(fps), stream->time_base);
         }
 
-        int ret = av_seek_frame(formatCtx_, videoStreamIndex_, target_ts, AVSEEK_FLAG_BACKWARD);
-        if (ret < 0) {
-            detail::log(LogLevel::Error)
-                << "framewright::VideoReader: Keyframe seek failed" << std::endl;
+        auto seek_to_keyframe = [&]() -> bool {
+            int ret =
+                av_seek_frame(formatCtx_, videoStreamIndex_, target_ts, AVSEEK_FLAG_BACKWARD);
+            if (ret < 0) {
+                detail::log(LogLevel::Error)
+                    << "framewright::VideoReader: Keyframe seek failed" << std::endl;
+                return false;
+            }
+            avcodec_flush_buffers(codecCtx_);
+            current_frame_ = 0;
+            current_timestamp_ = 0.0;
+            return true;
+        };
+
+        if (!seek_to_keyframe()) {
             return false;
         }
 
-        avcodec_flush_buffers(codecCtx_);
-        current_frame_ = 0;
-        current_timestamp_ = 0.0;
-
+        // av_seek_frame() tells us nothing about which frame index it landed
+        // on, so decode one frame and recover the index from its timestamp.
         cv::Mat tempFrame;
         if (!read(tempFrame)) {
             return false;
         }
 
-        if (frame_->pts != AV_NOPTS_VALUE) {
-            double time_pos = frame_->pts * av_q2d(stream->time_base);
-            double frame_duration = av_q2d(av_inv_q(stream->avg_frame_rate.num != 0
-                                                        ? stream->avg_frame_rate
-                                                        : stream->r_frame_rate));
-            if (frame_duration > 0) {
-                current_frame_ = static_cast<int64_t>(time_pos / frame_duration + 0.5);
+        AVRational seek_fps =
+            stream->avg_frame_rate.num != 0 ? stream->avg_frame_rate : stream->r_frame_rate;
+        double frame_duration =
+            (seek_fps.num != 0 && seek_fps.den != 0) ? av_q2d(av_inv_q(seek_fps)) : 0.0;
+
+        // Without a usable timestamp there is no way to know where we landed.
+        // Rewind to the start so the reader is left in a position it can
+        // honestly report, then fail.
+        if (frame_->pts == AV_NOPTS_VALUE || frame_duration <= 0) {
+            detail::log(LogLevel::Error)
+                << "framewright::VideoReader: Cannot determine position after keyframe seek "
+                   "(no usable timestamp); rewinding to start"
+                << std::endl;
+            if (av_seek_frame(formatCtx_, videoStreamIndex_, 0, AVSEEK_FLAG_BACKWARD) >= 0) {
+                avcodec_flush_buffers(codecCtx_);
             }
+            current_frame_ = 0;
+            current_timestamp_ = 0.0;
+            return false;
         }
+
+        double time_pos = frame_->pts * av_q2d(stream->time_base);
+        int64_t keyframe_index = static_cast<int64_t>(time_pos / frame_duration + 0.5);
+
+        if (keyframe_index >= frame_number) {
+            // The probe read consumed the very frame we were asked to seek to.
+            // It cannot be un-consumed, so redo the seek now that the keyframe
+            // index is known and leave the frame undecoded.
+            if (!seek_to_keyframe()) {
+                return false;
+            }
+            current_frame_ = keyframe_index;
+            current_timestamp_ = time_pos;
+            return current_frame_ == frame_number;
+        }
+
+        // current_frame_ counts frames *consumed*, i.e. it is the index of the
+        // next frame read() will return. The probe consumed keyframe_index, so
+        // we are now positioned one past it.
+        current_frame_ = keyframe_index + 1;
 
         while (current_frame_ < frame_number && read(tempFrame)) {
         }
