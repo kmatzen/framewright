@@ -77,6 +77,11 @@ set_target_properties(framewright PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
     EXPORT_NAME framewright
+    # The Python extension is a shared module that links this library. On ELF
+    # targets, static objects built without -fPIC cannot go into a .so:
+    #   relocation R_X86_64_PC32 ... can not be used when making a shared object
+    # Mach-O does not have this restriction, so omitting it fails on Linux only.
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # ------------------------------------------------------------------------------
