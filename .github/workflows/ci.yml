@@ -97,12 +97,18 @@ jobs:
         run: |
           listing=$(build/framewright_tests --list-tests)
           missing=0
+          checked=0
           while IFS= read -r name; do
             # The heredoc below is indented to satisfy YAML; strip that back
             # off or nothing will ever match and this check passes vacuously.
             name="${name#"${name%%[![:space:]]*}"}"
             [ -z "$name" ] && continue
-            if ! grep -qF "$name" <<<"$listing"; then
+            if grep -qF "$name" <<<"$listing"; then
+              # Report matches, not just failures: a silent pass is
+              # indistinguishable from a check that matched nothing.
+              echo "ok: $name"
+              checked=$((checked + 1))
+            else
               echo "::error::missing test case: $name"
               missing=1
             fi
@@ -113,6 +119,12 @@ jobs:
           VideoReader seek leaves the position counter consistent
           VideoReader seek past the end fails
           CASES
+
+          echo "verified $checked critical test cases"
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::no test names were checked; this guard is not working"
+            exit 1
+          fi
           exit $missing
 
       - name: Test (C++)
