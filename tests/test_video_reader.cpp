@@ -2,7 +2,9 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <framewright/VideoReader.h>
 
+#include <cstdlib>
 #include <string>
+#include <vector>
 
 static const std::string fixtures = TEST_FIXTURES_DIR;
 
@@ -107,6 +109,127 @@ TEST_CASE("VideoReader seek backward fails", "[reader]") {
     // Backward seek is now supported via keyframe seeking
     REQUIRE(reader.seek(0));
 }
+
+#ifdef HAVE_SEEK_FIXTURE
+
+// seek_numbered.mp4 encodes each frame's index in its luma (16 + 3*N) and has
+// keyframes at 0 and 30, so we can check *which* frame a seek actually landed
+// on rather than just that seek() returned true.
+namespace {
+
+constexpr int kSeekFixtureFrames = 60;
+
+int lumaOf(const cv::Mat& m) { return m.at<cv::Vec3b>(m.rows / 2, m.cols / 2)[1]; }
+
+// Reference table of per-frame luma, built by a plain sequential decode.
+std::vector<int> seekReference(const std::string& path) {
+    std::vector<int> r;
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+    cv::Mat frame;
+    while (reader.read(frame)) r.push_back(lumaOf(frame));
+    return r;
+}
+
+// Which frame index does this Mat correspond to? -1 if it matches nothing.
+int identifyFrame(const cv::Mat& m, const std::vector<int>& ref) {
+    int v = lumaOf(m), best = -1, bestDist = 1 << 30;
+    for (size_t i = 0; i < ref.size(); i++) {
+        int d = std::abs(ref[i] - v);
+        if (d < bestDist) { bestDist = d; best = static_cast<int>(i); }
+    }
+    return bestDist <= 1 ? best : -1;
+}
+
+} // namespace
+
+TEST_CASE("VideoReader seek lands on the frame it reports", "[reader][seek]") {
+    const std::string path = fixtures + "/seek_numbered.mp4";
+    const std::vector<int> ref = seekReference(path);
+    REQUIRE(ref.size() == static_cast<size_t>(kSeekFixtureFrames));
+
+    // Guard the fixture itself. If two frames decode to the same luma then
+    // identifyFrame() cannot tell them apart and every check below is
+    // meaningless. Catches e.g. luma values clipping at the limited-range
+    // ceiling, which would otherwise surface as a confusing frame mismatch.
+    for (size_t i = 1; i < ref.size(); i++) {
+        INFO("frames " << (i - 1) << " and " << i << " decode to luma " << ref[i - 1] << " and "
+                       << ref[i]);
+        REQUIRE(std::abs(ref[i] - ref[i - 1]) > 2);
+    }
+
+    // {start position, seek target}. Must include backward seeks and forward
+    // jumps of more than 50 frames: those are the only ones that take seek()'s
+    // keyframe path. A test built only from short forward jumps takes the
+    // scan path and passes even when the keyframe path is broken.
+    struct Case { int from; int target; };
+    const Case cases[] = {
+        {1, 0},    // backward to the very start
+        {50, 0},   // backward across a keyframe
+        {50, 5},   // backward, target between keyframes
+        {50, 29},  // backward, target just before a keyframe
+        {50, 30},  // backward, target IS a keyframe
+        {50, 35},  // backward, target just after a keyframe
+        {40, 35},  // short backward hop
+        {35, 31},  // short backward hop, just past a keyframe
+        {0, 55},   // forward jump > 50 frames, also takes the keyframe path
+        {1, 5},    // short forward jump: scan path
+        {1, 29},   // scan path
+        {1, 45},   // scan path
+    };
+
+    for (const Case& c : cases) {
+        INFO("seek from " << c.from << " to " << c.target);
+
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(path));
+
+        cv::Mat frame;
+        for (int i = 0; i < c.from; i++) REQUIRE(reader.read(frame));
+
+        REQUIRE(reader.seek(c.target));
+        CHECK(reader.getCurrentFrameNumber() == c.target);
+
+        // The contract: the next read() returns exactly the frame that
+        // getCurrentFrameNumber() just advertised.
+        REQUIRE(reader.read(frame));
+        CHECK(identifyFrame(frame, ref) == c.target);
+    }
+}
+
+TEST_CASE("VideoReader seek leaves the position counter consistent", "[reader][seek]") {
+    const std::string path = fixtures + "/seek_numbered.mp4";
+    const std::vector<int> ref = seekReference(path);
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+
+    cv::Mat frame;
+
+    // A sequence of seeks in both directions must not accumulate drift.
+    const int targets[] = {45, 10, 44, 30, 0, 59, 31};
+    for (int t : targets) {
+        INFO("seek to " << t);
+        REQUIRE(reader.seek(t));
+        CHECK(reader.getCurrentFrameNumber() == t);
+        REQUIRE(reader.read(frame));
+        CHECK(identifyFrame(frame, ref) == t);
+        // read() advanced us by exactly one.
+        CHECK(reader.getCurrentFrameNumber() == t + 1);
+    }
+}
+
+TEST_CASE("VideoReader seek past the end fails", "[reader][seek]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/seek_numbered.mp4"));
+
+    cv::Mat frame;
+    REQUIRE(reader.read(frame));
+
+    CHECK_FALSE(reader.seek(kSeekFixtureFrames + 100));
+}
+
+#endif // HAVE_SEEK_FIXTURE
 
 TEST_CASE("VideoReader close and reopen", "[reader]") {
     framewright::VideoReader reader;

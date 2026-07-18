@@ -1,0 +1,15 @@
+sequential decode: 60 frames
+
+from   seek(n)  branch   returned   reports frame  next read() is frame
+1      0        keyframe true       0              0     
+50     0        keyframe true       0              0     
+50     5        keyframe true       5              5     
+50     29       keyframe true       29             29    
+50     30       keyframe true       30             30    
+50     35       keyframe true       35             35    
+50     45       keyframe true       45             45    
+40     35       keyframe true       35             35    
+1      5        scan     true       5              5     
+1      29       scan     true       29             29    
+1      45       scan     true       45             45    
+35     31       keyframe true       31             31    

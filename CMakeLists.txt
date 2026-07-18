@@ -145,6 +145,26 @@ if(FRAMEWRIGHT_BUILD_TESTS)
             OUTPUT_QUIET ERROR_QUIET
         )
 
+        # Seek fixture: 60 frames, each with a distinct luma value (16 + 3*N)
+        # so a decoded frame can be identified by content, and keyframes forced
+        # to every 30 frames so seek()'s keyframe path is reachable. The step is
+        # chosen so the last frame stays inside the limited range ceiling of
+        # 235 -- larger steps clip and make the final frames indistinguishable.
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi
+                -i "color=c=black:s=64x64:r=30:d=2,format=yuv420p,geq=lum='16+3*N':cb='128':cr='128'"
+                -c:v libx264 -qp 0 -g 30 -keyint_min 30 -sc_threshold 0 -pix_fmt yuv420p
+                "${TEST_FIXTURES_DIR}/seek_numbered.mp4"
+            RESULT_VARIABLE SEEK_FIXTURE_RESULT
+            OUTPUT_QUIET ERROR_QUIET
+        )
+        if(SEEK_FIXTURE_RESULT EQUAL 0)
+            set(HAVE_SEEK_FIXTURE TRUE)
+        else()
+            set(HAVE_SEEK_FIXTURE FALSE)
+            message(STATUS "seek fixture could not be generated, seek tests skipped")
+        endif()
+
         # 10-bit HDR (BT.2020 + PQ) - only if libx265 is available
         execute_process(
             COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi -i "color=c=yellow:size=1920x1080:rate=30:duration=0.1"
@@ -185,6 +205,10 @@ if(FRAMEWRIGHT_BUILD_TESTS)
 
     if(HAVE_HDR_FIXTURE)
         target_compile_definitions(framewright_tests PRIVATE HAVE_HDR_FIXTURE)
+    endif()
+
+    if(HAVE_SEEK_FIXTURE)
+        target_compile_definitions(framewright_tests PRIVATE HAVE_SEEK_FIXTURE)
     endif()
 
     add_test(NAME framewright_tests COMMAND framewright_tests)
