@@ -85,6 +85,36 @@ jobs:
       - name: Build
         run: cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
 
+      # Requiring the fixtures (above) catches a fixture that fails to
+      # generate, but not a test case deleted outright or gated on something
+      # other than a fixture. These are the cases covering bugs that reached
+      # main and were expensive to find -- name them so their disappearance is
+      # an error rather than a silently smaller suite. A total-count assertion
+      # was considered instead and rejected: it needs bumping on every test
+      # addition, which trains people to update it reflexively, and it reports
+      # "the number changed" rather than which coverage was lost. See #58.
+      - name: Require critical test cases
+        run: |
+          listing=$(build/framewright_tests --list-tests)
+          missing=0
+          while IFS= read -r name; do
+            # The heredoc below is indented to satisfy YAML; strip that back
+            # off or nothing will ever match and this check passes vacuously.
+            name="${name#"${name%%[![:space:]]*}"}"
+            [ -z "$name" ] && continue
+            if ! grep -qF "$name" <<<"$listing"; then
+              echo "::error::missing test case: $name"
+              missing=1
+            fi
+          done <<'CASES'
+          VideoReader seek lands on the frame it reports
+          VideoReader seek lands on the frame it reports (B-frames)
+          VideoReader reads every frame through to EOF
+          VideoReader seek leaves the position counter consistent
+          VideoReader seek past the end fails
+          CASES
+          exit $missing
+
       - name: Test (C++)
         run: ctest --test-dir build --output-on-failure --no-tests=error
 
