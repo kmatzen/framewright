@@ -28,7 +28,7 @@ jobs:
     name: ${{ matrix.name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -50,7 +50,7 @@ jobs:
           echo "CMAKE_PREFIX_PATH=$(brew --prefix ${{ matrix.opencv }})" >> "$GITHUB_ENV"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -129,6 +129,24 @@ jobs:
 
       - name: Test (C++)
         run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      # ctest reports pass/fail for the binary as a whole, and
+      # --output-on-failure hides Catch2's summary on success -- so a green
+      # build records nothing about how many cases actually ran. A case that
+      # starts skipping stays present in --list-tests (so #65 does not catch
+      # it) and needs no fixture (so #63 does not either), yet exercises
+      # nothing. Every codec these tests need is installed above, so on CI a
+      # skip is a real gap rather than graceful degradation. See #66.
+      - name: Report and check test counts
+        run: |
+          set -o pipefail
+          # Default console reporter, not --reporter compact: compact omits the
+          # skip count entirely, so the check below would never see one.
+          build/framewright_tests | tail -5 | tee catch2.log
+          if grep -qiE "[1-9][0-9]* skipped" catch2.log; then
+            echo "::error::test cases were skipped; CI should run the whole suite"
+            exit 1
+          fi
 
       - name: Test (Python)
         run: |
