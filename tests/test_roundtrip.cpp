@@ -131,9 +131,8 @@ TEST_CASE("Round-trip: FFV1 lossless RGB", "[roundtrip][color]") {
     // Write FFV1
     {
         framewright::VideoWriter writer;
-        if (!writer.open(path, AV_CODEC_ID_FFV1, W, H, {30, 1})) {
-            SKIP("FFV1 codec not available or pixel format not supported");
-        }
+        // Not a SKIP: see #70 -- a skip here hid a completely broken path.
+        REQUIRE(writer.open(path, AV_CODEC_ID_FFV1, W, H, {30, 1}));
         REQUIRE(writer.write(original));
         writer.release();
     }
@@ -147,12 +146,13 @@ TEST_CASE("Round-trip: FFV1 lossless RGB", "[roundtrip][color]") {
         REQUIRE(reader.read(frame));
 
         cv::Vec3b pixel = frame.at<cv::Vec3b>(H / 2, W / 2);
-        // FFV1 uses GBRP (planar RGB), so the round-trip through the reader's
-        // scaler may introduce small differences depending on colorspace interpretation.
-        // Allow tolerance of 2 for the colorspace conversion path.
-        CHECK(std::abs(pixel[0] - 42) <= 2);  // B
-        CHECK(std::abs(pixel[1] - 84) <= 2);  // G
-        CHECK(std::abs(pixel[2] - 168) <= 2); // R
+        // FFV1 with BGR0 never leaves RGB, so the round trip is bit-exact --
+        // no chroma subsampling and no YUV matrix to introduce error. The old
+        // tolerance of 2 was there for the GBRP path that #70 showed never
+        // actually worked.
+        CHECK(pixel[0] == 42);  // B
+        CHECK(pixel[1] == 84);  // G
+        CHECK(pixel[2] == 168); // R
     }
 
     remove_file(path);
