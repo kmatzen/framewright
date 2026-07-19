@@ -274,9 +274,10 @@ TEST_CASE("VideoWriter FFV1 lossless", "[writer]") {
 
     {
         framewright::VideoWriter writer;
-        if (!writer.open(path, AV_CODEC_ID_FFV1, 320, 240, {30, 1})) {
-            SKIP("FFV1 codec not available or pixel format not supported");
-        }
+        // Not a SKIP: FFV1 is built into ffmpeg, so a failure here means we
+        // handed the encoder something it cannot accept -- which is exactly
+        // how #70 stayed hidden. Fail loudly instead.
+        REQUIRE(writer.open(path, AV_CODEC_ID_FFV1, 320, 240, {30, 1}));
 
         cv::Mat frame = make_frame(320, 240, {42, 84, 168});
         REQUIRE(writer.write(frame));
