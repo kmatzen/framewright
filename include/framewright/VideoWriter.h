@@ -43,6 +43,10 @@ struct VideoWriterOptions {
 /// - Pixel format (4:2:0, 4:2:2, 4:4:4, 8-bit and 10-bit)
 /// - HDR10 static metadata (mastering display, content light level)
 /// - Lossless encoding (FFV1, H.264 qp=0)
+/// @note Not thread-safe. An instance holds mutable encoder state and mutates
+/// it on every write(), so concurrent calls on one instance race. Separate
+/// instances in separate threads are fine. The library-wide log level (see
+/// LogLevel.h) is process-global and shared by all instances.
 class VideoWriter {
   public:
     VideoWriter();

@@ -283,6 +283,68 @@ TEST_CASE("VideoReader rejects out-of-range seek without moving", "[reader][seek
     CHECK(identifyFrame(frame, ref) == 5);
 }
 
+TEST_CASE("VideoReader readRef returns the same pixels as read", "[reader][zerocopy]") {
+    const std::string path = fixtures + "/seek_numbered.mp4";
+
+    framewright::VideoReader a, b;
+    REQUIRE(a.open(path));
+    REQUIRE(b.open(path));
+
+    cv::Mat copied, viewed;
+    for (int i = 0; i < 5; i++) {
+        INFO("frame " << i);
+        REQUIRE(a.read(copied));
+        REQUIRE(b.readRef(viewed));
+        REQUIRE(copied.size() == viewed.size());
+        CHECK(cv::countNonZero(cv::sum(cv::abs(copied - viewed)) != cv::Scalar(0, 0, 0)) == 0);
+    }
+
+    // Position tracking must not differ between the two paths.
+    CHECK(a.getCurrentFrameNumber() == b.getCurrentFrameNumber());
+}
+
+// The point of readRef() is that it does NOT copy. A version that quietly kept
+// cloning would satisfy every "same pixels" check above, so assert the actual
+// aliasing: the previously returned Mat must change when the next frame is
+// decoded over the top of it. See #73.
+TEST_CASE("VideoReader readRef aliases the internal buffer", "[reader][zerocopy]") {
+    const std::string path = fixtures + "/seek_numbered.mp4";
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+
+    cv::Mat view;
+    REQUIRE(reader.readRef(view));
+    const uchar* firstData = view.data;
+    const int firstLuma = view.at<cv::Vec3b>(view.rows / 2, view.cols / 2)[1];
+
+    REQUIRE(reader.readRef(view));
+
+    // Same buffer address: it is a view, not a copy.
+    CHECK(view.data == firstData);
+    // And its contents were overwritten by the second decode. The fixture's
+    // luma steps by 3 per frame, so this is a real change, not noise.
+    CHECK(view.at<cv::Vec3b>(view.rows / 2, view.cols / 2)[1] != firstLuma);
+}
+
+TEST_CASE("VideoReader read returns an independent copy", "[reader][zerocopy]") {
+    const std::string path = fixtures + "/seek_numbered.mp4";
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+
+    cv::Mat first;
+    REQUIRE(reader.read(first));
+    const int firstLuma = first.at<cv::Vec3b>(first.rows / 2, first.cols / 2)[1];
+
+    cv::Mat second;
+    REQUIRE(reader.read(second));
+
+    // read() clones, so the first frame must survive the second decode.
+    CHECK(first.data != second.data);
+    CHECK(first.at<cv::Vec3b>(first.rows / 2, first.cols / 2)[1] == firstLuma);
+}
+
 TEST_CASE("VideoReader reports unknown frame count after close", "[reader]") {
     framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/seek_numbered.mp4"));
