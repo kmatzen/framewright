@@ -327,6 +327,16 @@ bool VideoReader::seek(int64_t frame_number) {
         return false;
     }
 
+    // Reject a knowably out-of-range target before doing any work. Without
+    // this the seek scans forward decoding every remaining frame only to fail
+    // at EOF, which is O(frames remaining) of full decode for a request that
+    // cannot succeed. frame_count_ is -1 when the container does not report
+    // one (common with MKV and some MP4), and then the scan really is the only
+    // way to find out, so the guard stays conditional.
+    if (frame_count_ > 0 && frame_number >= frame_count_) {
+        return false;
+    }
+
     if (current_frame_ == frame_number) {
         return true;
     }
@@ -469,7 +479,9 @@ void VideoReader::cleanup() {
     width_ = 0;
     height_ = 0;
     fps_ = 0.0;
-    frame_count_ = 0;
+    // -1 means "unknown", matching open() and what getFrameCount() documents.
+    // 0 would be a legitimate-looking count for a closed reader.
+    frame_count_ = -1;
     current_frame_ = 0;
     current_timestamp_ = 0.0;
 }
