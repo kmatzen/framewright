@@ -37,3 +37,7 @@ _deps/
 # macOS
 .DS_Store
 dist/
+
+# Python
+__pycache__/
+*.py[cod]
