@@ -14,6 +14,12 @@ namespace framewright {
 
 /// Drop-in replacement for cv::VideoCapture with correct color space handling.
 ///
+/// @note Not thread-safe. An instance holds mutable decoder state and mutates
+/// its position counters on every read(), so concurrent calls on one instance
+/// race. Separate instances in separate threads are fine -- they share no
+/// state. The one exception is the library-wide log level (see LogLevel.h),
+/// which is process-global.
+///
 /// OpenCV's VideoCapture silently picks a YUV-to-RGB color matrix and gives
 /// you no way to override it. This class uses FFmpeg directly and lets you
 /// force BT.709, BT.601, or full-range conversion so the pixel values you
@@ -39,7 +45,17 @@ class VideoReader {
               bool force_full_range = false);
 
     /// Read the next frame as a BGR cv::Mat (same convention as OpenCV).
+    /// The frame is a deep copy and stays valid for as long as you hold it.
     bool read(cv::Mat& frame);
+
+    /// Read the next frame without copying it.
+    ///
+    /// @warning The returned cv::Mat is a *view* onto an internal buffer that
+    /// the reader overwrites in place. It is invalidated by the next call to
+    /// read(), readRef(), seek() or close(), and by destroying the reader.
+    /// Clone it yourself if you need to keep it. Use read() unless the copy
+    /// is measurably hurting you -- it avoids this hazard entirely.
+    bool readRef(cv::Mat& frame);
 
     /// Seek to a specific frame number (forward and backward, best effort).
     bool seek(int64_t frame_number);
@@ -77,6 +93,8 @@ class VideoReader {
   private:
     void cleanup();
     bool setupScaler();
+    /// Decodes the next frame into frameBGR_ and advances the counters.
+    bool decodeNextFrame();
 
     AVFormatContext* formatCtx_ = nullptr;
     AVCodecContext* codecCtx_ = nullptr;
