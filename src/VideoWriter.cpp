@@ -139,11 +139,18 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         }
     }
 
-    // For FFV1, use RGB pixel format to avoid any YUV conversion errors
+    // For FFV1, keep the data in RGB so there is no YUV conversion to lose
+    // precision. BGR0 is 8-bit packed BGR with padding: it matches the BGR24
+    // cv::Mat input channel-for-channel and needs no chroma subsampling.
+    //
+    // Not GBRP -- the FFV1 encoder rejects plain 8-bit gbrp outright
+    // ("Specified pixel format gbrp is not supported by the ffv1 encoder"),
+    // so avcodec_open2 failed and FFV1 output never worked at all. It
+    // advertises gbrp9le and wider, but not gbrp. See #70.
     if (codec_id == AV_CODEC_ID_FFV1) {
-        this->pix_fmt_ = AV_PIX_FMT_GBRP;
+        this->pix_fmt_ = AV_PIX_FMT_BGR0;
         pix_fmt = this->pix_fmt_;
-        detail::log(LogLevel::Info) << "Using FFV1 lossless codec with RGB pixel format (no YUV conversion)"
+        detail::log(LogLevel::Info) << "Using FFV1 lossless codec with BGR pixel format (no YUV conversion)"
                   << std::endl;
     }
 
