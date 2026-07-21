@@ -400,6 +400,85 @@ TEST_CASE("VideoReader move assignment", "[reader]") {
     REQUIRE(other.read(frame));
 }
 
+TEST_CASE("VideoReader read/readRef/seek before open all fail", "[reader]") {
+    framewright::VideoReader reader;
+
+    cv::Mat frame;
+    CHECK_FALSE(reader.read(frame));
+    CHECK_FALSE(reader.readRef(frame));
+    CHECK_FALSE(reader.seek(0));
+}
+
+TEST_CASE("VideoReader read after close fails", "[reader]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+    reader.close();
+
+    cv::Mat frame;
+    CHECK_FALSE(reader.read(frame));
+    CHECK_FALSE(reader.readRef(frame));
+    CHECK_FALSE(reader.seek(0));
+}
+
+TEST_CASE("VideoReader double close is safe", "[reader]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+    reader.close();
+    reader.close(); // must not crash or misbehave
+
+    CHECK(reader.getWidth() == 0);
+    CHECK(reader.getFrameCount() == -1);
+}
+
+TEST_CASE("VideoReader seek rejects negative frame numbers", "[reader]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+
+    CHECK_FALSE(reader.seek(-1));
+    // Position must be unaffected by a rejected seek.
+    CHECK(reader.getCurrentFrameNumber() == 0);
+}
+
+TEST_CASE("VideoReader metadata getters return sentinels before open", "[reader]") {
+    framewright::VideoReader reader;
+
+    CHECK(reader.getPixelFormat() == AV_PIX_FMT_NONE);
+    CHECK(reader.getCodecID() == AV_CODEC_ID_NONE);
+    CHECK(reader.getColorSpace() == AVCOL_SPC_UNSPECIFIED);
+    CHECK(reader.getColorRange() == AVCOL_RANGE_UNSPECIFIED);
+    CHECK(reader.getColorPrimaries() == AVCOL_PRI_UNSPECIFIED);
+    CHECK(reader.getColorTransfer() == AVCOL_TRC_UNSPECIFIED);
+}
+
+TEST_CASE("VideoReader metadata getters return sentinels after close", "[reader]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+    reader.close();
+
+    CHECK(reader.getPixelFormat() == AV_PIX_FMT_NONE);
+    CHECK(reader.getCodecID() == AV_CODEC_ID_NONE);
+    CHECK(reader.getColorSpace() == AVCOL_SPC_UNSPECIFIED);
+    CHECK(reader.getColorRange() == AVCOL_RANGE_UNSPECIFIED);
+}
+
+// sd_480p.mp4 is SD content with unspecified color metadata, so the reader
+// must fall back to BT.601 (BT470BG) rather than BT.709 -- exercising the
+// auto-detect branch in setupScaler() rather than the force_bt709 override.
+TEST_CASE("VideoReader auto-detects BT.601 for SD content", "[reader][color]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/sd_480p.mp4"));
+
+    // The fixture's metadata is untagged -- otherwise this wouldn't be
+    // exercising the auto-detect branch at all, just reporting what the file
+    // says.
+    REQUIRE(reader.getColorSpace() == AVCOL_SPC_UNSPECIFIED);
+    CHECK_FALSE(reader.isForcingBT709());
+
+    cv::Mat frame;
+    REQUIRE(reader.read(frame));
+    CHECK_FALSE(frame.empty());
+}
+
 #ifdef HAVE_HDR_FIXTURE
 TEST_CASE("VideoReader opens HDR10 file", "[reader][hdr]") {
     framewright::VideoReader reader;
