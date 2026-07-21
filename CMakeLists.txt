@@ -229,6 +229,7 @@ if(FRAMEWRIGHT_BUILD_TESTS)
         tests/test_video_reader.cpp
         tests/test_video_writer.cpp
         tests/test_roundtrip.cpp
+        tests/test_log_level.cpp
     )
 
     target_link_libraries(framewright_tests PRIVATE framewright Catch2::Catch2WithMain)

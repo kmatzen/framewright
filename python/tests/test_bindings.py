@@ -80,6 +80,22 @@ class TestVideoReaderBasics:
         assert reader.read() is None
         reader.close()
 
+    def test_seek(self, bt709_limited):
+        reader = framewright.VideoReader()
+        reader.open(bt709_limited)
+
+        assert reader.read() is not None
+        assert reader.frame_number == 1
+
+        assert reader.seek(0)
+        assert reader.frame_number == 0
+        assert reader.read() is not None
+
+    def test_seek_negative_fails(self, bt709_limited):
+        reader = framewright.VideoReader()
+        reader.open(bt709_limited)
+        assert not reader.seek(-1)
+
 
 # --------------------------------------------------------------------------- #
 # VideoReader color metadata
@@ -185,6 +201,77 @@ class TestVideoWriterBasics:
             writer.write(np.zeros((240, 320), dtype=np.uint8))
         writer.release()
 
+    def test_write_rejects_wrong_channel_count(self, tmp_path):
+        path = str(tmp_path / "test_bad_channels.mp4")
+        writer = framewright.VideoWriter()
+        writer.open(path, codec="h264", width=320, height=240, fps=30)
+
+        with pytest.raises(ValueError):
+            writer.write(np.zeros((240, 320, 4), dtype=np.uint8))
+        writer.release()
+
+    def test_open_rejects_unknown_codec(self, tmp_path):
+        path = str(tmp_path / "test_unknown_codec.mp4")
+        writer = framewright.VideoWriter()
+        with pytest.raises(ValueError):
+            writer.open(path, codec="not-a-real-codec", width=320, height=240, fps=30)
+
+    def test_open_rejects_unknown_pix_fmt(self, tmp_path):
+        path = str(tmp_path / "test_unknown_pixfmt.mp4")
+        writer = framewright.VideoWriter()
+        with pytest.raises(ValueError):
+            writer.open(path, codec="h264", width=320, height=240, fps=30,
+                        pix_fmt="not-a-real-format")
+
+    def test_open_accepts_hevc_and_ffv1_codec_names(self, tmp_path):
+        for codec, ext in [("hevc", ".mp4"), ("h265", ".mp4"), ("ffv1", ".mkv")]:
+            path = str(tmp_path / f"test_{codec}{ext}")
+            writer = framewright.VideoWriter()
+            opened = writer.open(path, codec=codec, width=320, height=240, fps=30)
+            if not opened:
+                pytest.skip(f"{codec} encoder not available")
+
+            frame = np.full((240, 320, 3), 100, dtype=np.uint8)
+            assert writer.write(frame)
+            writer.release()
+            assert os.path.getsize(path) > 0
+
+    def test_open_accepts_yuv444p_pix_fmt(self, tmp_path):
+        path = str(tmp_path / "test_444.mp4")
+        writer = framewright.VideoWriter()
+        assert writer.open(path, codec="h264", width=320, height=240, fps=30,
+                           pix_fmt="yuv444p", use_444=True)
+
+        frame = np.full((240, 320, 3), 50, dtype=np.uint8)
+        assert writer.write(frame)
+        writer.release()
+        assert os.path.getsize(path) > 0
+
+    def test_open_rejects_bad_dimensions(self, tmp_path):
+        path = str(tmp_path / "test_bad_dims.mp4")
+        writer = framewright.VideoWriter()
+        # Zero-size frames are not a valid encode target.
+        assert not writer.open(path, codec="h264", width=0, height=0, fps=30)
+
+    def test_set_hdr10_metadata(self, tmp_path):
+        path = str(tmp_path / "test_hdr10.mp4")
+        writer = framewright.VideoWriter()
+
+        metadata = framewright.HDR10Metadata()
+        metadata.max_cll = 3000
+        metadata.max_fall = 1200
+        writer.set_hdr10_metadata(metadata)
+
+        opened = writer.open(path, codec="hevc", width=1920, height=1080, fps=30,
+                             pix_fmt="yuv420p10le", is_10bit=True)
+        if not opened:
+            pytest.skip("HEVC 10-bit encoder not available")
+
+        frame = np.full((1080, 1920, 3), 20000, dtype=np.uint16)
+        assert writer.write(frame)
+        writer.release()
+        assert os.path.getsize(path) > 0
+
 
 # --------------------------------------------------------------------------- #
 # Round-trip
@@ -247,3 +334,13 @@ class TestLogLevel:
 
         framewright.set_log_level(framewright.LogLevel.Error)
         assert framewright.get_log_level() == framewright.LogLevel.Error
+
+    def test_set_and_get_warning_and_info(self):
+        framewright.set_log_level(framewright.LogLevel.Warning)
+        assert framewright.get_log_level() == framewright.LogLevel.Warning
+
+        framewright.set_log_level(framewright.LogLevel.Info)
+        assert framewright.get_log_level() == framewright.LogLevel.Info
+
+        # Restore the default so later tests aren't affected by this one.
+        framewright.set_log_level(framewright.LogLevel.Error)
