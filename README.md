@@ -13,6 +13,7 @@ A drop-in replacement for `cv::VideoCapture` and `cv::VideoWriter` that gives yo
 | Color metadata | Not exposed | `getColorSpace()`, `getColorRange()`, `getPixelFormat()`, `getCodecID()` |
 | Zero-copy frames | No | `readRef()` avoids per-frame clone |
 | Untagged content | Implementation-defined matrix | Sensible defaults (BT.709 for HD, BT.601 for SD) |
+| HDR sources (PQ/HLG) | Washed-out colors, no warning | Opt-in tone mapping to SDR, or full-precision code values via `read16()` |
 
 ### Writing
 
@@ -130,6 +131,34 @@ writer.write(frame)
 writer.release()
 ```
 
+## Reading HDR video
+
+HDR sources (BT.2020 with PQ/SMPTE 2084 or HLG transfer) always get the
+correct BT.2020 color matrix. Beyond the matrix you have three choices:
+
+```cpp
+// 1. Display-ready SDR: linearize PQ/HLG, tone map (1000-nit assumed peak),
+//    convert BT.2020 primaries to BT.709, encode with BT.709 gamma.
+framewright::VideoReaderOptions opts;
+opts.hdr_mode = framewright::HdrMode::ToneMapSDR;
+reader.open("hdr10.mp4", opts);
+reader.read(frame);   // CV_8UC3, looks right on an SDR display
+
+// 2. Full-precision code values for your own pipeline: the transfer function
+//    is NOT applied, so PQ/HLG data stays encoded, at 16-bit precision.
+reader.open("hdr10.mp4");
+reader.read16(frame); // CV_16UC3; pair with getColorTransfer()/getColorPrimaries()
+
+// 3. Default read() is unchanged: matrix-only conversion. For HDR sources the
+//    result remains HDR-encoded (washed out as sRGB) and a warning is logged.
+```
+
+Python: `reader.open("hdr10.mp4", tone_map_hdr=True)` and `reader.read16()`.
+
+Only codec-level color metadata is honored. Frame-level dynamic metadata
+(HDR10+, Dolby Vision RPUs) is ignored: Dolby Vision profile 5 content
+(ICtCp) decodes with approximated colors and a warning.
+
 ## Building
 
 ### As a dependency (CMake FetchContent)
@@ -183,11 +212,15 @@ framewright::setLogLevel(framewright::LogLevel::Quiet);    // Silence all output
 | Method | Description |
 |--------|-------------|
 | `open(filename, force_bt709, force_full_range)` | Open a video file with optional color space overrides |
+| `open(filename, options)` | Open with `VideoReaderOptions` (color overrides + `HdrMode`) |
 | `read(frame)` | Read the next frame as BGR `cv::Mat` (cloned, always safe) |
 | `readRef(frame)` | Read the next frame without copying (valid until next read) |
+| `read16(frame)` | Read as CV_16UC3 with source code values preserved (no transfer applied) |
 | `seek(frame_number)` | Seek to a frame (forward and backward) |
 | `getPixelFormat()`, `getCodecID()` | Source format info |
 | `getColorSpace()`, `getColorRange()` | Color metadata |
+| `getColorPrimaries()`, `getColorTransfer()` | HDR-relevant color metadata |
+| `isToneMappingActive()` | Whether read() is tone mapping this source |
 | `getFPS()`, `getWidth()`, `getHeight()` | Video properties |
 
 ### `framewright::VideoWriter`

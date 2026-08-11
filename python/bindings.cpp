@@ -113,11 +113,22 @@ PYBIND11_MODULE(_framewright, m) {
     py::class_<framewright::VideoReader>(m, "VideoReader",
         "Color-correct video reader. Drop-in replacement for cv2.VideoCapture.")
         .def(py::init<>())
-        .def("open", &framewright::VideoReader::open,
+        .def("open", [](framewright::VideoReader& self, const std::string& filename,
+                        bool force_bt709, bool force_full_range, bool tone_map_hdr) {
+                framewright::VideoReaderOptions opts;
+                opts.force_bt709 = force_bt709;
+                opts.force_full_range = force_full_range;
+                opts.hdr_mode = tone_map_hdr ? framewright::HdrMode::ToneMapSDR
+                                             : framewright::HdrMode::Passthrough;
+                return self.open(filename, opts);
+             },
              py::arg("filename"),
              py::arg("force_bt709") = false,
              py::arg("force_full_range") = false,
-             "Open a video file.")
+             py::arg("tone_map_hdr") = false,
+             "Open a video file. With tone_map_hdr=True, PQ/HLG sources are\n"
+             "tone mapped to display-ready SDR BT.709 in read(); SDR sources\n"
+             "are unaffected.")
         .def("read", [](framewright::VideoReader& self) -> py::object {
                 cv::Mat frame;
                 if (!self.read(frame)) {
@@ -130,6 +141,20 @@ PYBIND11_MODULE(_framewright, m) {
                 return mat_to_numpy_owned(*mat_ptr, capsule);
              },
              "Read the next frame as a numpy array (H, W, 3) BGR uint8.\n"
+             "Returns None at end of file.")
+        .def("read16", [](framewright::VideoReader& self) -> py::object {
+                cv::Mat frame;
+                if (!self.read16(frame)) {
+                    return py::none();
+                }
+                auto* mat_ptr = new cv::Mat(std::move(frame));
+                auto capsule = py::capsule(mat_ptr,
+                    [](void* p) { delete static_cast<cv::Mat*>(p); });
+                return mat_to_numpy_owned(*mat_ptr, capsule);
+             },
+             "Read the next frame as a numpy array (H, W, 3) BGR uint16 with\n"
+             "the source's code values preserved at full precision (the\n"
+             "transfer function is NOT applied -- PQ/HLG data stays encoded).\n"
              "Returns None at end of file.")
         .def("seek", &framewright::VideoReader::seek,
              py::arg("frame_number"),
@@ -169,6 +194,9 @@ PYBIND11_MODULE(_framewright, m) {
         })
         .def_property_readonly("forcing_bt709", &framewright::VideoReader::isForcingBT709)
         .def_property_readonly("forcing_full_range", &framewright::VideoReader::isForcingFullRange)
+        .def_property_readonly("tone_mapping_active",
+                               &framewright::VideoReader::isToneMappingActive,
+                               "True when the source is PQ/HLG and read() is tone mapping it.")
         .def("__enter__", [](framewright::VideoReader& self) -> framewright::VideoReader& {
             return self;
         })

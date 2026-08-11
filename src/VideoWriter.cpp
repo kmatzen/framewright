@@ -383,9 +383,15 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
         if (ret >= 0) {
             const int* src_coeff = sws_getCoefficients(SWS_CS_BT2020);
             const int* dst_coeff = sws_getCoefficients(SWS_CS_BT2020);
-            sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, 0, brightness, contrast,
-                                     saturation);
-            detail::log(LogLevel::Info) << "Configured swscale for BT.2020 HDR colorspace" << std::endl;
+            if (sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, 0, brightness,
+                                         contrast, saturation) < 0) {
+                detail::log(LogLevel::Warning)
+                    << "Warning: swscale rejected the BT.2020 colorspace configuration; "
+                       "conversion falls back to swscale defaults"
+                    << std::endl;
+            } else {
+                detail::log(LogLevel::Info) << "Configured swscale for BT.2020 HDR colorspace" << std::endl;
+            }
         } else {
             detail::log(LogLevel::Error) << "Warning: Failed to get colorspace details from swscale context"
                       << std::endl;
@@ -401,10 +407,16 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
             const int* src_coeff = sws_getCoefficients(SWS_CS_ITU709);
             const int* dst_coeff = sws_getCoefficients(SWS_CS_ITU709);
             int dst_range = full_range_ ? 1 : 0;
-            sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, dst_range, brightness,
-                                     contrast, saturation);
-            detail::log(LogLevel::Info) << "Configured swscale for BT.709 SDR colorspace ("
-                      << (full_range_ ? "full" : "limited") << " range)" << std::endl;
+            if (sws_setColorspaceDetails(swsCtx_, src_coeff, 1, dst_coeff, dst_range, brightness,
+                                         contrast, saturation) < 0) {
+                detail::log(LogLevel::Warning)
+                    << "Warning: swscale rejected the BT.709 colorspace configuration; "
+                       "conversion falls back to swscale defaults"
+                    << std::endl;
+            } else {
+                detail::log(LogLevel::Info) << "Configured swscale for BT.709 SDR colorspace ("
+                          << (full_range_ ? "full" : "limited") << " range)" << std::endl;
+            }
         }
     }
 

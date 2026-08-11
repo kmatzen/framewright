@@ -2,7 +2,62 @@
 
 #include "framewright/LogLevel.h"
 
+#include <algorithm>
+#include <cmath>
+
+extern "C" {
+#include <libavutil/pixdesc.h>
+}
+
 namespace framewright {
+
+namespace {
+
+// SMPTE ST 2084 (PQ) EOTF: normalized code value -> display luminance in nits.
+double pqEotf(double e) {
+    constexpr double m1 = 2610.0 / 16384.0;
+    constexpr double m2 = 2523.0 / 4096.0 * 128.0;
+    constexpr double c1 = 3424.0 / 4096.0;
+    constexpr double c2 = 2413.0 / 4096.0 * 32.0;
+    constexpr double c3 = 2392.0 / 4096.0 * 32.0;
+
+    double p = std::pow(std::max(e, 0.0), 1.0 / m2);
+    double num = std::max(p - c1, 0.0);
+    double den = c2 - c3 * p;
+    if (den <= 0.0) {
+        return 10000.0;
+    }
+    return 10000.0 * std::pow(num / den, 1.0 / m1);
+}
+
+// ARIB STD-B67 (HLG) inverse OETF: normalized code value -> scene-linear [0,1].
+double hlgInverseOetf(double e) {
+    constexpr double a = 0.17883277;
+    constexpr double b = 0.28466892;
+    constexpr double c = 0.55991073;
+
+    e = std::max(e, 0.0);
+    if (e <= 0.5) {
+        return e * e / 3.0;
+    }
+    return (std::exp((e - c) / a) + b) / 12.0;
+}
+
+// Nominal mastering peak assumed when tone mapping, in SDR-reference-white
+// units (1.0 == 100 nits). Static HDR10 mastering metadata is not parsed, so
+// the common 1000-nit grading peak is assumed; content graded brighter is
+// compressed a little harder, which degrades gracefully.
+constexpr float kToneMapPeak = 10.0f;
+
+// BT.709 OETF, matching what an SDR camera would have encoded: tone-mapped
+// output therefore decodes the same way SDR video of the same scene would.
+inline uint8_t encodeBt709(float lin) {
+    lin = std::min(std::max(lin, 0.0f), 1.0f);
+    float e = lin < 0.018f ? 4.5f * lin : 1.099f * std::pow(lin, 0.45f) - 0.099f;
+    return static_cast<uint8_t>(std::lround(std::min(std::max(e, 0.0f), 1.0f) * 255.0f));
+}
+
+} // namespace
 
 VideoReader::VideoReader() {}
 
@@ -10,18 +65,24 @@ VideoReader::~VideoReader() { cleanup(); }
 
 VideoReader::VideoReader(VideoReader&& other) noexcept
     : formatCtx_(other.formatCtx_), codecCtx_(other.codecCtx_), frame_(other.frame_),
-      frameBGR_(other.frameBGR_), packet_(other.packet_), swsCtx_(other.swsCtx_),
+      frameBGR_(other.frameBGR_), frameBGR16_(other.frameBGR16_), packet_(other.packet_),
+      swsCtx_(other.swsCtx_), swsCtx16_(other.swsCtx16_),
       videoStreamIndex_(other.videoStreamIndex_), width_(other.width_), height_(other.height_),
       fps_(other.fps_), frame_count_(other.frame_count_), current_frame_(other.current_frame_),
       current_timestamp_(other.current_timestamp_),
       force_bt709_(other.force_bt709_),
-      force_full_range_(other.force_full_range_) {
+      force_full_range_(other.force_full_range_),
+      hdr_mode_(other.hdr_mode_),
+      tone_map_active_(other.tone_map_active_),
+      toneMapLut_(std::move(other.toneMapLut_)) {
     other.formatCtx_ = nullptr;
     other.codecCtx_ = nullptr;
     other.frame_ = nullptr;
     other.frameBGR_ = nullptr;
+    other.frameBGR16_ = nullptr;
     other.packet_ = nullptr;
     other.swsCtx_ = nullptr;
+    other.swsCtx16_ = nullptr;
 }
 
 VideoReader& VideoReader::operator=(VideoReader&& other) noexcept {
@@ -31,8 +92,10 @@ VideoReader& VideoReader::operator=(VideoReader&& other) noexcept {
         codecCtx_ = other.codecCtx_;
         frame_ = other.frame_;
         frameBGR_ = other.frameBGR_;
+        frameBGR16_ = other.frameBGR16_;
         packet_ = other.packet_;
         swsCtx_ = other.swsCtx_;
+        swsCtx16_ = other.swsCtx16_;
         videoStreamIndex_ = other.videoStreamIndex_;
         width_ = other.width_;
         height_ = other.height_;
@@ -42,22 +105,35 @@ VideoReader& VideoReader::operator=(VideoReader&& other) noexcept {
         current_timestamp_ = other.current_timestamp_;
         force_bt709_ = other.force_bt709_;
         force_full_range_ = other.force_full_range_;
+        hdr_mode_ = other.hdr_mode_;
+        tone_map_active_ = other.tone_map_active_;
+        toneMapLut_ = std::move(other.toneMapLut_);
 
         other.formatCtx_ = nullptr;
         other.codecCtx_ = nullptr;
         other.frame_ = nullptr;
         other.frameBGR_ = nullptr;
+        other.frameBGR16_ = nullptr;
         other.packet_ = nullptr;
         other.swsCtx_ = nullptr;
+        other.swsCtx16_ = nullptr;
     }
     return *this;
 }
 
 bool VideoReader::open(const std::string& filename, bool force_bt709, bool force_full_range) {
+    VideoReaderOptions options;
+    options.force_bt709 = force_bt709;
+    options.force_full_range = force_full_range;
+    return open(filename, options);
+}
+
+bool VideoReader::open(const std::string& filename, const VideoReaderOptions& options) {
     cleanup();
 
-    force_bt709_ = force_bt709;
-    force_full_range_ = force_full_range;
+    force_bt709_ = options.force_bt709;
+    force_full_range_ = options.force_full_range;
+    hdr_mode_ = options.hdr_mode;
 
     if (avformat_open_input(&formatCtx_, filename.c_str(), nullptr, nullptr) < 0) {
         detail::log(LogLevel::Error) << "framewright::VideoReader: Could not open file: " << filename << std::endl;
@@ -157,9 +233,24 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
         return false;
     }
 
+    const AVColorTransferCharacteristic trc = codecCtx_->color_trc;
+    const bool is_hdr_transfer =
+        (trc == AVCOL_TRC_SMPTE2084 || trc == AVCOL_TRC_ARIB_STD_B67);
+    tone_map_active_ = is_hdr_transfer && hdr_mode_ == HdrMode::ToneMapSDR;
+
     if (!setupScaler()) {
         cleanup();
         return false;
+    }
+
+    if (tone_map_active_) {
+        // Tone mapping consumes the 16-bit conversion, so build it eagerly
+        // rather than on the first read.
+        if (!ensure16BitScaler()) {
+            cleanup();
+            return false;
+        }
+        buildToneMapLut();
     }
 
     detail::log(LogLevel::Info) << "framewright::VideoReader: Opened " << filename << std::endl;
@@ -179,22 +270,53 @@ bool VideoReader::open(const std::string& filename, bool force_bt709, bool force
         detail::log(LogLevel::Info) << "  -> Forcing full range (0-255) for conversion" << std::endl;
     }
 
+    if (is_hdr_transfer && !tone_map_active_) {
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: Source uses an HDR transfer function ("
+            << av_color_transfer_name(trc)
+            << "). read() applies only the color matrix, so the returned pixels remain "
+               "HDR-encoded and will look washed out if treated as sRGB/BT.709. Open with "
+               "HdrMode::ToneMapSDR for display-ready SDR frames, or use read16() to get "
+               "the untouched code values at full precision."
+            << std::endl;
+    } else if (tone_map_active_) {
+        detail::log(LogLevel::Info) << "  -> Tone mapping "
+                                    << av_color_transfer_name(trc)
+                                    << " to SDR BT.709 (assumed 1000-nit peak)" << std::endl;
+    }
+
     current_frame_ = 0;
 
     return true;
 }
 
-bool VideoReader::setupScaler() {
-    swsCtx_ = sws_getContext(width_, height_, codecCtx_->pix_fmt, width_, height_, AV_PIX_FMT_BGR24,
-                             SWS_LANCZOS, nullptr, nullptr, nullptr);
-
-    if (!swsCtx_) {
-        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not create scaler context" << std::endl;
-        return false;
-    }
-
+void VideoReader::configureScalerColorspace(SwsContext* ctx) {
     int srcColorspace = codecCtx_->colorspace;
     int srcRange = codecCtx_->color_range;
+
+    // sws_getCoefficients() only knows a fixed table of matrices and silently
+    // returns its BT.601 default for anything else -- notably BT.2020
+    // constant-luminance and ICtCp (Dolby Vision profile 5). Substitute the
+    // closest supported matrix and say so, instead of quietly decoding
+    // maximally wrong.
+    switch (srcColorspace) {
+    case AVCOL_SPC_BT2020_CL:
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: BT.2020 constant-luminance is not supported by "
+               "swscale; approximating with the non-constant-luminance BT.2020 matrix"
+            << std::endl;
+        srcColorspace = AVCOL_SPC_BT2020_NCL;
+        break;
+    case AVCOL_SPC_ICTCP:
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: ICtCp (Dolby Vision) is not supported by swscale; "
+               "approximating with the BT.2020 matrix. Colors will be wrong."
+            << std::endl;
+        srcColorspace = AVCOL_SPC_BT2020_NCL;
+        break;
+    default:
+        break;
+    }
 
     if (force_bt709_) {
         srcColorspace = AVCOL_SPC_BT709;
@@ -228,15 +350,130 @@ bool VideoReader::setupScaler() {
     int contrast = 1 << 16;
     int saturation = 1 << 16;
 
-    sws_setColorspaceDetails(swsCtx_, srcCoeffs, swsSrcRange, dstCoeffs, 1, brightness,
-                             contrast, saturation);
+    // RGB sources (e.g. FFV1 BGR0) have no YUV matrix to configure and
+    // sws_setColorspaceDetails() rejects them; that refusal is expected there,
+    // not a dropped configuration.
+    const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(codecCtx_->pix_fmt);
+    const bool src_is_rgb = desc && (desc->flags & AV_PIX_FMT_FLAG_RGB);
+
+    if (sws_setColorspaceDetails(ctx, srcCoeffs, swsSrcRange, dstCoeffs, 1, brightness,
+                                 contrast, saturation) < 0 &&
+        !src_is_rgb) {
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: swscale rejected the colorspace configuration for "
+               "pixel format "
+            << av_get_pix_fmt_name(codecCtx_->pix_fmt)
+            << "; conversion falls back to swscale defaults" << std::endl;
+    }
+}
+
+bool VideoReader::setupScaler() {
+    swsCtx_ = sws_getContext(width_, height_, codecCtx_->pix_fmt, width_, height_, AV_PIX_FMT_BGR24,
+                             SWS_LANCZOS, nullptr, nullptr, nullptr);
+
+    if (!swsCtx_) {
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not create scaler context" << std::endl;
+        return false;
+    }
+
+    configureScalerColorspace(swsCtx_);
 
     return true;
 }
 
-// Decodes the next frame into frameBGR_ and advances the position counters.
-// Shared by read() and readRef(); the only difference between them is whether
-// the caller gets a copy of that buffer or a view onto it.
+bool VideoReader::ensure16BitScaler() {
+    if (swsCtx16_ && frameBGR16_) {
+        return true;
+    }
+
+    swsCtx16_ = sws_getContext(width_, height_, codecCtx_->pix_fmt, width_, height_,
+                               AV_PIX_FMT_BGR48LE, SWS_LANCZOS, nullptr, nullptr, nullptr);
+    if (!swsCtx16_) {
+        detail::log(LogLevel::Error)
+            << "framewright::VideoReader: Could not create 16-bit scaler context" << std::endl;
+        return false;
+    }
+
+    configureScalerColorspace(swsCtx16_);
+
+    frameBGR16_ = av_frame_alloc();
+    if (!frameBGR16_) {
+        detail::log(LogLevel::Error) << "framewright::VideoReader: Could not allocate frame" << std::endl;
+        return false;
+    }
+    frameBGR16_->format = AV_PIX_FMT_BGR48LE;
+    frameBGR16_->width = width_;
+    frameBGR16_->height = height_;
+    if (av_frame_get_buffer(frameBGR16_, 32) < 0) {
+        detail::log(LogLevel::Error)
+            << "framewright::VideoReader: Could not allocate 16-bit frame buffer" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+void VideoReader::buildToneMapLut() {
+    const bool is_hlg = (codecCtx_->color_trc == AVCOL_TRC_ARIB_STD_B67);
+
+    toneMapLut_.resize(65536);
+    for (int i = 0; i < 65536; i++) {
+        const double e = i / 65535.0;
+        double linear;
+        if (is_hlg) {
+            // Scene-linear via the inverse OETF, then the nominal 1000-nit HLG
+            // display OOTF (gamma 1.2), expressed relative to 100-nit SDR white.
+            linear = 10.0 * std::pow(hlgInverseOetf(e), 1.2);
+        } else {
+            linear = pqEotf(e) / 100.0;
+        }
+        toneMapLut_[i] = static_cast<float>(linear);
+    }
+}
+
+void VideoReader::toneMapFrame() {
+    // BT.2020 -> BT.709 primaries, linear light.
+    constexpr float m00 = 1.6605f, m01 = -0.5876f, m02 = -0.0728f;
+    constexpr float m10 = -0.1246f, m11 = 1.1329f, m12 = -0.0083f;
+    constexpr float m20 = -0.0182f, m21 = -0.1006f, m22 = 1.1187f;
+
+    for (int y = 0; y < height_; y++) {
+        const uint16_t* src = reinterpret_cast<const uint16_t*>(frameBGR16_->data[0] +
+                                                                y * frameBGR16_->linesize[0]);
+        uint8_t* dst = frameBGR_->data[0] + static_cast<ptrdiff_t>(y) * frameBGR_->linesize[0];
+
+        for (int x = 0; x < width_; x++) {
+            float b = toneMapLut_[src[3 * x + 0]];
+            float g = toneMapLut_[src[3 * x + 1]];
+            float r = toneMapLut_[src[3 * x + 2]];
+
+            // Luminance-based extended Reinhard preserves hue better than
+            // per-channel curves: scale all channels by the ratio of mapped to
+            // unmapped luminance (BT.2020 luma coefficients).
+            const float lum = 0.2627f * r + 0.6780f * g + 0.0593f * b;
+            if (lum > 0.0f) {
+                const float mapped =
+                    lum * (1.0f + lum / (kToneMapPeak * kToneMapPeak)) / (1.0f + lum);
+                const float s = mapped / lum;
+                r *= s;
+                g *= s;
+                b *= s;
+            }
+
+            const float r709 = m00 * r + m01 * g + m02 * b;
+            const float g709 = m10 * r + m11 * g + m12 * b;
+            const float b709 = m20 * r + m21 * g + m22 * b;
+
+            dst[3 * x + 0] = encodeBt709(b709);
+            dst[3 * x + 1] = encodeBt709(g709);
+            dst[3 * x + 2] = encodeBt709(r709);
+        }
+    }
+}
+
+// Decodes the next frame into frame_ and advances the position counters.
+// Conversion to BGR happens separately (convertToBGR8/convertToBGR16) so that
+// read(), readRef() and read16() share one decode path.
 bool VideoReader::decodeNextFrame() {
     while (true) {
         int ret = av_read_frame(formatCtx_, packet_);
@@ -258,47 +495,27 @@ bool VideoReader::decodeNextFrame() {
                 detail::log(LogLevel::Error) << "framewright::VideoReader: Error receiving flushed frame" << std::endl;
                 return false;
             }
+        } else {
+            if (packet_->stream_index != videoStreamIndex_) {
+                av_packet_unref(packet_);
+                continue;
+            }
 
-            if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
-                          frameBGR_->linesize) < 0) {
-                detail::log(LogLevel::Error) << "framewright::VideoReader: sws_scale failed" << std::endl;
+            ret = avcodec_send_packet(codecCtx_, packet_);
+            av_packet_unref(packet_);
+
+            if (ret < 0) {
+                detail::log(LogLevel::Error) << "framewright::VideoReader: Error sending packet to decoder" << std::endl;
                 return false;
             }
 
-            if (frame_->pts != AV_NOPTS_VALUE) {
-                AVStream* stream = formatCtx_->streams[videoStreamIndex_];
-                current_timestamp_ = frame_->pts * av_q2d(stream->time_base);
+            ret = avcodec_receive_frame(codecCtx_, frame_);
+            if (ret == AVERROR(EAGAIN)) {
+                continue;
+            } else if (ret < 0) {
+                detail::log(LogLevel::Error) << "framewright::VideoReader: Error receiving frame from decoder" << std::endl;
+                return false;
             }
-
-            current_frame_++;
-            return true;
-        }
-
-        if (packet_->stream_index != videoStreamIndex_) {
-            av_packet_unref(packet_);
-            continue;
-        }
-
-        ret = avcodec_send_packet(codecCtx_, packet_);
-        av_packet_unref(packet_);
-
-        if (ret < 0) {
-            detail::log(LogLevel::Error) << "framewright::VideoReader: Error sending packet to decoder" << std::endl;
-            return false;
-        }
-
-        ret = avcodec_receive_frame(codecCtx_, frame_);
-        if (ret == AVERROR(EAGAIN)) {
-            continue;
-        } else if (ret < 0) {
-            detail::log(LogLevel::Error) << "framewright::VideoReader: Error receiving frame from decoder" << std::endl;
-            return false;
-        }
-
-        if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
-                      frameBGR_->linesize) < 0) {
-            detail::log(LogLevel::Error) << "framewright::VideoReader: sws_scale failed" << std::endl;
-            return false;
         }
 
         if (frame_->pts != AV_NOPTS_VALUE) {
@@ -311,11 +528,40 @@ bool VideoReader::decodeNextFrame() {
     }
 }
 
+bool VideoReader::convertToBGR8() {
+    if (tone_map_active_) {
+        if (!convertToBGR16()) {
+            return false;
+        }
+        toneMapFrame();
+        return true;
+    }
+
+    if (sws_scale(swsCtx_, frame_->data, frame_->linesize, 0, height_, frameBGR_->data,
+                  frameBGR_->linesize) < 0) {
+        detail::log(LogLevel::Error) << "framewright::VideoReader: sws_scale failed" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool VideoReader::convertToBGR16() {
+    if (!ensure16BitScaler()) {
+        return false;
+    }
+    if (sws_scale(swsCtx16_, frame_->data, frame_->linesize, 0, height_, frameBGR16_->data,
+                  frameBGR16_->linesize) < 0) {
+        detail::log(LogLevel::Error) << "framewright::VideoReader: sws_scale failed" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool VideoReader::read(cv::Mat& frame) {
     if (!formatCtx_ || !codecCtx_) {
         return false;
     }
-    if (!decodeNextFrame()) {
+    if (!decodeNextFrame() || !convertToBGR8()) {
         return false;
     }
     frame = cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0]).clone();
@@ -326,12 +572,24 @@ bool VideoReader::readRef(cv::Mat& frame) {
     if (!formatCtx_ || !codecCtx_) {
         return false;
     }
-    if (!decodeNextFrame()) {
+    if (!decodeNextFrame() || !convertToBGR8()) {
         return false;
     }
     // Deliberately no clone: frame is a view onto frameBGR_, which the next
     // decode overwrites in place. See the header for the lifetime contract.
     frame = cv::Mat(height_, width_, CV_8UC3, frameBGR_->data[0], frameBGR_->linesize[0]);
+    return true;
+}
+
+bool VideoReader::read16(cv::Mat& frame) {
+    if (!formatCtx_ || !codecCtx_) {
+        return false;
+    }
+    if (!decodeNextFrame() || !convertToBGR16()) {
+        return false;
+    }
+    frame = cv::Mat(height_, width_, CV_16UC3, frameBGR16_->data[0], frameBGR16_->linesize[0])
+                .clone();
     return true;
 }
 
@@ -467,9 +725,19 @@ void VideoReader::cleanup() {
         swsCtx_ = nullptr;
     }
 
+    if (swsCtx16_) {
+        sws_freeContext(swsCtx16_);
+        swsCtx16_ = nullptr;
+    }
+
     if (frameBGR_) {
         av_frame_free(&frameBGR_);
         frameBGR_ = nullptr;
+    }
+
+    if (frameBGR16_) {
+        av_frame_free(&frameBGR16_);
+        frameBGR16_ = nullptr;
     }
 
     if (frame_) {
@@ -501,6 +769,8 @@ void VideoReader::cleanup() {
     frame_count_ = -1;
     current_frame_ = 0;
     current_timestamp_ = 0.0;
+    tone_map_active_ = false;
+    toneMapLut_.clear();
 }
 
 AVPixelFormat VideoReader::getPixelFormat() const {
