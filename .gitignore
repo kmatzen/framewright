@@ -46,3 +46,7 @@ __pycache__/
 wasm/deps/
 wasm/dist/
 wasm/build-opencv/
+
+# Local wheel-dependency sources (used by scripts/build_wheel_deps.sh)
+.wheel-deps-src/
+wheelhouse/

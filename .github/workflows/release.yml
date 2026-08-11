@@ -40,6 +40,30 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
+  build-wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux
+          - os: macos-latest
+            name: macos
+    runs-on: ${{ matrix.os }}
+    name: Build wheels (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build wheels
+        run: |
+          pip install cibuildwheel
+          python -m cibuildwheel --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.name }}
+          path: wheelhouse/*.whl
+
   build-wasm:
     runs-on: ubuntu-24.04
     name: Build WASM module
@@ -80,7 +104,7 @@ jobs:
             wasm/dist/framewright.wasm
 
   github-release:
-    needs: [build-sdist, build-wasm]
+    needs: [build-sdist, build-wheels, build-wasm]
     runs-on: ubuntu-24.04
     name: Create GitHub release
     permissions:
@@ -98,7 +122,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "release $RELEASE_TAG already exists, skipping creation"
+            echo "release $RELEASE_TAG already exists; uploading any new artifacts"
+            gh release upload "$RELEASE_TAG" --clobber \
+              artifacts/*.tar.gz artifacts/*.whl \
+              artifacts/framewright.js artifacts/framewright.wasm
             exit 0
           fi
           # --target pins the tag gh creates when it does not exist yet
@@ -108,10 +135,11 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "framewright $RELEASE_TAG" \
             --generate-notes \
-            artifacts/*.tar.gz artifacts/framewright.js artifacts/framewright.wasm
+            artifacts/*.tar.gz artifacts/*.whl \
+            artifacts/framewright.js artifacts/framewright.wasm
 
   publish:
-    needs: [build-sdist]
+    needs: [build-sdist, build-wheels]
     runs-on: ubuntu-24.04
     name: Publish to PyPI
     environment:
@@ -123,8 +151,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: sdist
+          pattern: "{sdist,wheels-*}"
           path: dist
+          merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:

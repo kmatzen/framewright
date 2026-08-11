@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Binary wheels for Linux (x86_64) and macOS (arm64), CPython 3.9–3.13, with
+  statically linked LGPL FFmpeg and OpenCV core — `pip install framewright`
+  needs no system dependencies. The LGPL build ships no x264/x265, so
+  H.264/HEVC writing requires a source install; reading and FFV1 writing are
+  fully functional (#92)
+
 ## [0.2.0] - 2026-08-11
 
 ### Added

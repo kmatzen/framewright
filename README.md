@@ -202,6 +202,18 @@ make -j$(nproc)
 pip install framewright
 ```
 
+Binary wheels (Linux x86_64, macOS arm64, CPython 3.9–3.13) bundle a
+statically linked, **LGPL** FFmpeg and OpenCV core — no system dependencies
+needed. One consequence of the LGPL build: the wheels contain no x264/x265,
+so **H.264/HEVC *writing* is unavailable in wheel installs** (`open()`
+returns false with "codec not found"); reading — including all HDR paths —
+and FFV1 lossless writing are fully functional. For H.264/HEVC writing,
+install from source against a system FFmpeg that includes them:
+
+```bash
+pip install framewright --no-binary framewright   # needs OpenCV + FFmpeg dev packages
+```
+
 ### Requirements
 
 - C++17 compiler
