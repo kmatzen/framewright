@@ -34,3 +34,24 @@ Issues = "https://github.com/kmatzen/framewright/issues"
 [tool.scikit-build]
 cmake.args = ["-DFRAMEWRIGHT_BUILD_PYTHON=ON"]
 wheel.packages = ["python/framewright"]
+
+# Binary wheels: dependencies are built once per platform into a static,
+# LGPL-clean prefix (scripts/build_wheel_deps.sh) and linked statically, so
+# the extension module is self-contained. See docs in that script for what
+# the LGPL constraint means (H.264/HEVC writing needs a source install).
+[tool.cibuildwheel]
+build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*"]
+skip = ["*-musllinux_*"]
+test-requires = ["numpy"]
+test-command = "python {project}/scripts/wheel_smoke.py"
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+manylinux-x86_64-image = "manylinux_2_28"
+before-all = "bash {project}/scripts/build_wheel_deps.sh /opt/fw-deps"
+environment = { PKG_CONFIG_PATH = "/opt/fw-deps/lib/pkgconfig:/opt/fw-deps/lib64/pkgconfig", CMAKE_PREFIX_PATH = "/opt/fw-deps", CMAKE_ARGS = "-DFRAMEWRIGHT_STATIC_DEPS=ON" }
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
+before-all = "bash {project}/scripts/build_wheel_deps.sh /tmp/fw-deps"
+environment = { PKG_CONFIG_PATH = "/tmp/fw-deps/lib/pkgconfig", CMAKE_PREFIX_PATH = "/tmp/fw-deps", CMAKE_ARGS = "-DFRAMEWRIGHT_STATIC_DEPS=ON", MACOSX_DEPLOYMENT_TARGET = "13.0" }

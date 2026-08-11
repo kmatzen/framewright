@@ -35,22 +35,38 @@ pkg_check_modules(FFMPEG REQUIRED
     libavutil>=56.31
 )
 
+# Link FFmpeg's static archives (pkg-config --static info) instead of shared
+# libraries. Used by the wheel builds, where a self-contained extension module
+# is wanted and the dependency prefix only installs .a files.
+option(FRAMEWRIGHT_STATIC_DEPS
+       "Link FFmpeg statically using pkg-config --static link information" OFF)
+
+if(FRAMEWRIGHT_STATIC_DEPS)
+    set(_ffmpeg_library_dirs ${FFMPEG_STATIC_LIBRARY_DIRS})
+    set(_ffmpeg_ldflags_other ${FFMPEG_STATIC_LDFLAGS_OTHER})
+    set(_ffmpeg_libraries ${FFMPEG_STATIC_LIBRARIES})
+else()
+    set(_ffmpeg_library_dirs ${FFMPEG_LIBRARY_DIRS})
+    set(_ffmpeg_ldflags_other ${FFMPEG_LDFLAGS_OTHER})
+    set(_ffmpeg_libraries ${FFMPEG_LIBRARIES})
+endif()
+
 # Create an imported target for FFmpeg (PkgConfig doesn't always do this cleanly)
 add_library(framewright_ffmpeg INTERFACE IMPORTED)
 target_include_directories(framewright_ffmpeg INTERFACE ${FFMPEG_INCLUDE_DIRS})
-target_link_directories(framewright_ffmpeg INTERFACE ${FFMPEG_LIBRARY_DIRS})
+target_link_directories(framewright_ffmpeg INTERFACE ${_ffmpeg_library_dirs})
 
 # Handle macOS framework flags from pkg-config
 set(_framework_flags "")
 set(_other_flags "")
-list(LENGTH FFMPEG_LDFLAGS_OTHER _list_len)
+list(LENGTH _ffmpeg_ldflags_other _list_len)
 set(_i 0)
 while(_i LESS _list_len)
-    list(GET FFMPEG_LDFLAGS_OTHER ${_i} _flag)
+    list(GET _ffmpeg_ldflags_other ${_i} _flag)
     if("${_flag}" STREQUAL "-framework")
         math(EXPR _next "${_i} + 1")
         if(_next LESS _list_len)
-            list(GET FFMPEG_LDFLAGS_OTHER ${_next} _fw)
+            list(GET _ffmpeg_ldflags_other ${_next} _fw)
             list(APPEND _framework_flags "-framework ${_fw}")
             math(EXPR _i "${_i} + 2")
             continue()
@@ -60,7 +76,7 @@ while(_i LESS _list_len)
     math(EXPR _i "${_i} + 1")
 endwhile()
 
-target_link_libraries(framewright_ffmpeg INTERFACE ${_other_flags} ${_framework_flags} ${FFMPEG_LIBRARIES})
+target_link_libraries(framewright_ffmpeg INTERFACE ${_other_flags} ${_framework_flags} ${_ffmpeg_libraries})
 
 # ------------------------------------------------------------------------------
 # Library
@@ -328,6 +344,12 @@ if(FRAMEWRIGHT_BUILD_PYTHON)
 
     pybind11_add_module(_framewright python/bindings.cpp)
     target_link_libraries(_framewright PRIVATE framewright)
+    if(FRAMEWRIGHT_STATIC_DEPS AND NOT APPLE)
+        # Static FFmpeg's x86 assembly uses PC-relative relocations to its own
+        # global data (e.g. ff_pw_5), which the linker rejects in a shared
+        # object unless those symbols are bound locally.
+        target_link_options(_framewright PRIVATE "LINKER:-Bsymbolic")
+    endif()
     install(TARGETS _framewright DESTINATION .)
 endif()
 
