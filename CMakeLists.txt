@@ -228,12 +228,18 @@ if(FRAMEWRIGHT_BUILD_TESTS)
         # reader uses, so agreement between the two is meaningful -- with
         # x265 lossless preserving the code values exactly. Falls back to
         # swscale with accurate_rnd, which stays within the tests' tolerance.
+        # The color tags are written into the HEVC VUI via x265-params, not
+        # only via ffmpeg's -color_* stream flags: whether those flags survive
+        # into the bitstream depends on the ffmpeg version (Homebrew's drops
+        # color_trc), and the reader looks at what the decoder reports.
         function(generate_hdr_pixel_fixture color trc output result_var)
+            set(_x265_vui
+                "lossless=1:colorprim=bt2020:transfer=${trc}:colormatrix=bt2020nc:range=limited")
             execute_process(
                 COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi
                     -i "color=c=${color}:size=192x108:rate=30:duration=0.1"
                     -vf "format=gbrp,zscale=matrix=2020_ncl:range=limited:rangein=full,format=yuv420p10le"
-                    -c:v libx265 -x265-params lossless=1
+                    -c:v libx265 -x265-params "${_x265_vui}"
                     -colorspace bt2020nc -color_primaries bt2020 -color_trc ${trc}
                     -color_range tv -tag:v hvc1
                     "${TEST_FIXTURES_DIR}/${output}"
@@ -246,7 +252,7 @@ if(FRAMEWRIGHT_BUILD_TESTS)
                         -i "color=c=${color}:size=192x108:rate=30:duration=0.1"
                         -vf "scale=out_color_matrix=bt2020:out_range=tv:flags=accurate_rnd+bitexact+full_chroma_int"
                         -pix_fmt yuv420p10le
-                        -c:v libx265 -x265-params lossless=1
+                        -c:v libx265 -x265-params "${_x265_vui}"
                         -colorspace bt2020nc -color_primaries bt2020 -color_trc ${trc}
                         -color_range tv -tag:v hvc1
                         "${TEST_FIXTURES_DIR}/${output}"
