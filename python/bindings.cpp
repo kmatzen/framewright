@@ -51,6 +51,9 @@ static py::object mat_to_numpy_owned(const cv::Mat& mat, py::capsule base) {
     } else if (mat.depth() == CV_16U) {
         return py::array_t<uint16_t>(shape, strides,
                                      reinterpret_cast<const uint16_t*>(mat.data), base);
+    } else if (mat.depth() == CV_32F) {
+        return py::array_t<float>(shape, strides,
+                                  reinterpret_cast<const float*>(mat.data), base);
     }
 
     throw py::type_error("Unsupported Mat depth");
@@ -155,6 +158,21 @@ PYBIND11_MODULE(_framewright, m) {
              "Read the next frame as a numpy array (H, W, 3) BGR uint16 with\n"
              "the source's code values preserved at full precision (the\n"
              "transfer function is NOT applied -- PQ/HLG data stays encoded).\n"
+             "Returns None at end of file.")
+        .def("read_linear", [](framewright::VideoReader& self) -> py::object {
+                cv::Mat frame;
+                if (!self.readLinear(frame)) {
+                    return py::none();
+                }
+                auto* mat_ptr = new cv::Mat(std::move(frame));
+                auto capsule = py::capsule(mat_ptr,
+                    [](void* p) { delete static_cast<cv::Mat*>(p); });
+                return mat_to_numpy_owned(*mat_ptr, capsule);
+             },
+             "Read the next frame as a numpy array (H, W, 3) BGR float32 in\n"
+             "linear light, normalized so 1.0 == SDR reference white (100\n"
+             "nits). PQ/HLG are linearized per spec; SDR via the inverse\n"
+             "BT.709 OETF. Primaries are NOT converted (see color_primaries).\n"
              "Returns None at end of file.")
         .def("seek", &framewright::VideoReader::seek,
              py::arg("frame_number"),

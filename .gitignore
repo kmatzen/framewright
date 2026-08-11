@@ -41,3 +41,8 @@ dist/
 # Python
 __pycache__/
 *.py[cod]
+
+# WASM build outputs
+wasm/deps/
+wasm/dist/
+wasm/build-opencv/
