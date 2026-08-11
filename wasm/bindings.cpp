@@ -60,6 +60,28 @@ class JsVideoReader {
         return matToTypedArray(f);
     }
 
+    // (H*W*4) RGBA Uint8ClampedArray, directly usable for an ImageData of
+    // the reader's width/height, or null at EOF. Same conversion as read()
+    // (so tone mapping applies when enabled), expanded from BGR with
+    // alpha = 255.
+    val readRGBA() {
+        cv::Mat f;
+        if (!reader_.read(f)) {
+            return val::null();
+        }
+        const size_t pixels = f.total();
+        std::vector<uint8_t> rgba(pixels * 4);
+        const uint8_t* src = f.data;
+        for (size_t i = 0; i < pixels; i++) {
+            rgba[i * 4 + 0] = src[i * 3 + 2];
+            rgba[i * 4 + 1] = src[i * 3 + 1];
+            rgba[i * 4 + 2] = src[i * 3 + 0];
+            rgba[i * 4 + 3] = 255;
+        }
+        return val::global("Uint8ClampedArray")
+            .new_(emscripten::typed_memory_view(rgba.size(), rgba.data()));
+    }
+
     // (H*W*3) BGR Uint16Array with source code values preserved, or null.
     val read16() {
         cv::Mat f;
@@ -155,6 +177,7 @@ EMSCRIPTEN_BINDINGS(framewright) {
         .constructor<>()
         .function("open", &JsVideoReader::open)
         .function("read", &JsVideoReader::read)
+        .function("readRGBA", &JsVideoReader::readRGBA)
         .function("read16", &JsVideoReader::read16)
         .function("readLinear", &JsVideoReader::readLinear)
         .function("seek", &JsVideoReader::seek)

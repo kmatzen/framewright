@@ -139,8 +139,9 @@ HDR sources (BT.2020 with PQ/SMPTE 2084 or HLG transfer) always get the
 correct BT.2020 color matrix. Beyond the matrix you have three choices:
 
 ```cpp
-// 1. Display-ready SDR: linearize PQ/HLG, tone map (1000-nit assumed peak),
-//    convert BT.2020 primaries to BT.709, encode with BT.709 gamma.
+// 1. Display-ready SDR: linearize PQ/HLG, tone map (peak from the source's
+//    mastering metadata when present, 1000 nits otherwise), convert BT.2020
+//    primaries to BT.709, encode with BT.709 gamma.
 framewright::VideoReaderOptions opts;
 opts.hdr_mode = framewright::HdrMode::ToneMapSDR;
 reader.open("hdr10.mp4", opts);
@@ -229,6 +230,7 @@ framewright::setLogLevel(framewright::LogLevel::Quiet);    // Silence all output
 | `readRef(frame)` | Read the next frame without copying (valid until next read) |
 | `read16(frame)` | Read as CV_16UC3 with source code values preserved (no transfer applied) |
 | `readLinear(frame)` | Read as CV_32FC3 linear light (1.0 = SDR white, source primaries) |
+| `hasHDR10Metadata()`, `getHDR10Metadata()` | HDR10 static metadata from the source (drives the tone-map peak) |
 | `seek(frame_number)` | Seek to a frame (forward and backward) |
 | `getPixelFormat()`, `getCodecID()` | Source format info |
 | `getColorSpace()`, `getColorRange()` | Color metadata |
@@ -241,7 +243,8 @@ framewright::setLogLevel(framewright::LogLevel::Quiet);    // Silence all output
 | Method | Description |
 |--------|-------------|
 | `open(filename, codec_id, w, h, fps, opts)` | Open output with full codec control |
-| `write(frame)` | Write a BGR frame (CV_8UC3 or CV_16UC3) |
+| `write(frame)` | Write a BGR frame (CV_8UC3 or CV_16UC3, display-encoded) |
+| `writeLinear(frame)` | Write a CV_32FC3 linear-light frame (PQ-encoded in HDR mode, BT.709 in SDR) |
 | `setHDR10Metadata(metadata)` | Set mastering display / content light level |
 | `release()` | Flush and finalize the file |
 

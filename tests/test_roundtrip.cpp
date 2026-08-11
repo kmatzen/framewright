@@ -298,3 +298,137 @@ TEST_CASE("Round-trip: FPS preserved", "[roundtrip]") {
 
     remove_file(path);
 }
+
+TEST_CASE("Round-trip: writeLinear -> readLinear on HDR is identity", "[roundtrip][hdr][color]") {
+    std::string path = temp_path("roundtrip_writelinear_hdr.mp4");
+
+    const int W = 192, H = 108;
+    framewright::VideoWriter writer;
+    bool opened = writer.open(path, AV_CODEC_ID_HEVC, W, H, {30, 1},
+                              25000000, AV_PIX_FMT_YUV420P10LE, true, false, false, false);
+    if (!opened) {
+        SKIP("libx265 not available, skipping writeLinear HDR round-trip test");
+    }
+
+    // Linear-light BGR, 1.0 == SDR white. The red channel is an HDR highlight
+    // (200 nits) that only survives a genuine PQ encode/decode round-trip.
+    const cv::Vec3f original(0.05f, 0.5f, 2.0f);
+    cv::Mat frame(H, W, CV_32FC3, cv::Scalar(original[0], original[1], original[2]));
+    REQUIRE(writer.writeLinear(frame));
+    REQUIRE(writer.writeLinear(frame));
+    writer.release();
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+    cv::Mat back;
+    REQUIRE(reader.readLinear(back));
+    REQUIRE(back.type() == CV_32FC3);
+
+    cv::Vec3f px = back.at<cv::Vec3f>(H / 2, W / 2);
+    for (int i = 0; i < 3; i++) {
+        // Explicit double: WithinRel(float, double) is ambiguous under Clang.
+        CHECK_THAT(px[i], Catch::Matchers::WithinRel(static_cast<double>(original[i]), 0.05));
+    }
+
+    remove_file(path);
+}
+
+TEST_CASE("Round-trip: writeLinear -> readLinear on SDR is identity", "[roundtrip][color]") {
+    std::string path = temp_path("roundtrip_writelinear_sdr.mp4");
+
+    const int W = 192, H = 108;
+    framewright::VideoWriter writer;
+    // Lossless 4:4:4 so the only loss is the 8-bit BT.709 quantization.
+    REQUIRE(writer.open(path, AV_CODEC_ID_H264, W, H, {30, 1},
+                        25000000, AV_PIX_FMT_YUV420P, false, false, false, true));
+
+    const cv::Vec3f original(0.05f, 0.2f, 0.7f);
+    cv::Mat frame(H, W, CV_32FC3, cv::Scalar(original[0], original[1], original[2]));
+    REQUIRE(writer.writeLinear(frame));
+    REQUIRE(writer.writeLinear(frame));
+    writer.release();
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(path));
+    cv::Mat back;
+    REQUIRE(reader.readLinear(back));
+
+    cv::Vec3f px = back.at<cv::Vec3f>(H / 2, W / 2);
+    for (int i = 0; i < 3; i++) {
+        CHECK(std::abs(px[i] - original[i]) <= 0.02f);
+    }
+
+    remove_file(path);
+}
+
+TEST_CASE("Round-trip: reader surfaces HDR10 mastering metadata and uses its peak",
+          "[roundtrip][hdr]") {
+    const int W = 192, H = 108;
+
+    // Same pixel content written twice with different mastering peaks.
+    auto write_with_peak = [&](const std::string& path, double max_lum,
+                               unsigned int max_cll) -> bool {
+        framewright::VideoWriter writer;
+        framewright::HDR10Metadata meta;
+        meta.max_luminance = max_lum;
+        meta.max_cll = max_cll;
+        writer.setHDR10Metadata(meta);
+        if (!writer.open(path, AV_CODEC_ID_HEVC, W, H, {30, 1},
+                         25000000, AV_PIX_FMT_YUV420P10LE, true, false, false, false)) {
+            return false;
+        }
+        cv::Mat frame(H, W, CV_16UC3, cv::Scalar(30000, 25000, 20000));
+        REQUIRE(writer.write(frame));
+        REQUIRE(writer.write(frame));
+        writer.release();
+        return true;
+    };
+
+    std::string path1k = temp_path("roundtrip_meta_1000.mp4");
+    std::string path4k = temp_path("roundtrip_meta_4000.mp4");
+    if (!write_with_peak(path1k, 1000.0, 1000)) {
+        SKIP("libx265 not available, skipping mastering metadata test");
+    }
+    REQUIRE(write_with_peak(path4k, 4000.0, 3210));
+
+    // Metadata surfaces on the reader (after the first read at the latest --
+    // the decoder attaches the SEI to frames).
+    framewright::VideoReaderOptions opts;
+    opts.hdr_mode = framewright::HdrMode::ToneMapSDR;
+
+    cv::Vec3b mapped1k, mapped4k;
+    {
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(path4k, opts));
+        cv::Mat frame;
+        REQUIRE(reader.read(frame));
+        mapped4k = frame.at<cv::Vec3b>(H / 2, W / 2);
+
+        CHECK(reader.hasHDR10Metadata());
+        CHECK_THAT(reader.getHDR10Metadata().max_luminance,
+                   Catch::Matchers::WithinRel(4000.0, 0.01));
+        CHECK(reader.getHDR10Metadata().max_cll == 3210);
+    }
+    {
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(path1k, opts));
+        cv::Mat frame;
+        REQUIRE(reader.read(frame));
+        mapped1k = frame.at<cv::Vec3b>(H / 2, W / 2);
+    }
+
+    // Extended Reinhard with a higher peak compresses the same luminance
+    // harder, so the 4000-nit-mastered encode must map dimmer. Identical
+    // outputs would mean the metadata never reached the tone mapper.
+    int dimmer = 0;
+    for (int i = 0; i < 3; i++) {
+        CHECK(mapped4k[i] <= mapped1k[i]);
+        if (mapped4k[i] < mapped1k[i]) {
+            dimmer++;
+        }
+    }
+    CHECK(dimmer > 0);
+
+    remove_file(path1k);
+    remove_file(path4k);
+}

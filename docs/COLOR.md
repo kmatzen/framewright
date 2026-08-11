@@ -165,7 +165,8 @@ floats with the encoding removed. Plain `read()` is 8-bit and fine when
 | The exact bits the file encodes, at full precision | `read16()` | 16-bit BGR code values (PQ/HLG still encoded) |
 | Physically meaningful light for image math / custom pipelines | `readLinear()` | float BGR, linear, 1.0 = SDR white, source primaries |
 | Legacy behavior (SDR workflows) | `read()` | 8-bit BGR, matrix-only conversion |
-| To write HDR10 | `VideoWriter` with `is_10bit` + `CV_16UC3` PQ-encoded input | HEVC Main10, BT.2020+PQ tagged, mastering metadata |
+| To write HDR10 from linear light | `VideoWriter` with `is_10bit` + `writeLinear()` | PQ encoding applied for you; round-trips with `readLinear()` |
+| To write HDR10 from PQ code values | `VideoWriter` with `is_10bit` + `write(CV_16UC3)` | HEVC Main10, BT.2020+PQ tagged, mastering metadata |
 
 All three languages expose the same surface:
 

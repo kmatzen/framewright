@@ -279,6 +279,35 @@ class TestHdrReading:
         assert not r.tone_mapping_active
         r.close()
 
+    def test_write_linear_round_trip_sdr(self, fixtures_dir):
+        path = os.path.join(fixtures_dir, "tmp_py_writelinear.mp4")
+        try:
+            w = framewright.VideoWriter()
+            assert w.open(path, codec="h264", width=64, height=48, fps=30,
+                          lossless=True)
+            frame = np.full((48, 64, 3), [0.05, 0.2, 0.7], dtype=np.float32)
+            assert w.write_linear(frame)
+            assert w.write_linear(frame)
+            w.release()
+
+            r = framewright.VideoReader()
+            assert r.open(path)
+            back = r.read_linear()
+            assert back is not None and back.dtype == np.float32
+            assert np.allclose(back[24, 32], [0.05, 0.2, 0.7], atol=0.02)
+            r.close()
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+    def test_hdr10_metadata_absent_on_sdr(self, bt709_limited):
+        r = framewright.VideoReader()
+        assert r.open(bt709_limited)
+        r.read()
+        assert not r.has_hdr10_metadata
+        assert r.hdr10_metadata.max_luminance == 1000.0  # defaults
+        r.close()
+
     def test_read_linear_returns_float32(self, hdr10_matrix):
         r = framewright.VideoReader()
         assert r.open(hdr10_matrix)
