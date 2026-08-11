@@ -6,6 +6,7 @@
 #include <cmath>
 
 extern "C" {
+#include <libavutil/mastering_display_metadata.h>
 #include <libavutil/pixdesc.h>
 }
 
@@ -43,12 +44,6 @@ double hlgInverseOetf(double e) {
     return (std::exp((e - c) / a) + b) / 12.0;
 }
 
-// Nominal mastering peak assumed when tone mapping, in SDR-reference-white
-// units (1.0 == 100 nits). Static HDR10 mastering metadata is not parsed, so
-// the common 1000-nit grading peak is assumed; content graded brighter is
-// compressed a little harder, which degrades gracefully.
-constexpr float kToneMapPeak = 10.0f;
-
 // BT.709 OETF, matching what an SDR camera would have encoded: tone-mapped
 // output therefore decodes the same way SDR video of the same scene would.
 inline uint8_t encodeBt709(float lin) {
@@ -74,6 +69,10 @@ VideoReader::VideoReader(VideoReader&& other) noexcept
       force_full_range_(other.force_full_range_),
       hdr_mode_(other.hdr_mode_),
       tone_map_active_(other.tone_map_active_),
+      hdr10_metadata_(other.hdr10_metadata_),
+      has_hdr10_metadata_(other.has_hdr10_metadata_),
+      first_frame_inspected_(other.first_frame_inspected_),
+      tone_map_peak_(other.tone_map_peak_),
       linearLut_(std::move(other.linearLut_)) {
     other.formatCtx_ = nullptr;
     other.codecCtx_ = nullptr;
@@ -107,6 +106,10 @@ VideoReader& VideoReader::operator=(VideoReader&& other) noexcept {
         force_full_range_ = other.force_full_range_;
         hdr_mode_ = other.hdr_mode_;
         tone_map_active_ = other.tone_map_active_;
+        hdr10_metadata_ = other.hdr10_metadata_;
+        has_hdr10_metadata_ = other.has_hdr10_metadata_;
+        first_frame_inspected_ = other.first_frame_inspected_;
+        tone_map_peak_ = other.tone_map_peak_;
         linearLut_ = std::move(other.linearLut_);
 
         other.formatCtx_ = nullptr;
@@ -238,6 +241,8 @@ bool VideoReader::open(const std::string& filename, const VideoReaderOptions& op
         (trc == AVCOL_TRC_SMPTE2084 || trc == AVCOL_TRC_ARIB_STD_B67);
     tone_map_active_ = is_hdr_transfer && hdr_mode_ == HdrMode::ToneMapSDR;
 
+    readStreamHDR10Metadata();
+
     if (!setupScaler()) {
         cleanup();
         return false;
@@ -288,6 +293,135 @@ bool VideoReader::open(const std::string& filename, const VideoReaderOptions& op
     current_frame_ = 0;
 
     return true;
+}
+
+namespace {
+
+// Clamp a mastering max-luminance to a sane tone-mapping peak, in
+// SDR-reference-white units. Guards against zeroed or absurd metadata.
+float peakFromMaxLuminance(double nits) {
+    if (nits < 100.0 || nits > 10000.0) {
+        return 10.0f;
+    }
+    return static_cast<float>(nits / 100.0);
+}
+
+void masteringToHDR10(const AVMasteringDisplayMetadata* m, HDR10Metadata* out, bool* found) {
+    if (!m) {
+        return;
+    }
+    if (m->has_primaries) {
+        out->red_x = av_q2d(m->display_primaries[0][0]);
+        out->red_y = av_q2d(m->display_primaries[0][1]);
+        out->green_x = av_q2d(m->display_primaries[1][0]);
+        out->green_y = av_q2d(m->display_primaries[1][1]);
+        out->blue_x = av_q2d(m->display_primaries[2][0]);
+        out->blue_y = av_q2d(m->display_primaries[2][1]);
+        out->white_x = av_q2d(m->white_point[0]);
+        out->white_y = av_q2d(m->white_point[1]);
+        *found = true;
+    }
+    if (m->has_luminance) {
+        out->max_luminance = av_q2d(m->max_luminance);
+        out->min_luminance = av_q2d(m->min_luminance);
+        *found = true;
+    }
+}
+
+} // namespace
+
+void VideoReader::readStreamHDR10Metadata() {
+    AVStream* stream = formatCtx_->streams[videoStreamIndex_];
+
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(60, 29, 100)
+    const AVPacketSideData* sd = av_packet_side_data_get(
+        stream->codecpar->coded_side_data, stream->codecpar->nb_coded_side_data,
+        AV_PKT_DATA_MASTERING_DISPLAY_METADATA);
+    const uint8_t* mastering = sd ? sd->data : nullptr;
+    const AVPacketSideData* cll_sd = av_packet_side_data_get(
+        stream->codecpar->coded_side_data, stream->codecpar->nb_coded_side_data,
+        AV_PKT_DATA_CONTENT_LIGHT_LEVEL);
+    const uint8_t* cll = cll_sd ? cll_sd->data : nullptr;
+#else
+    const uint8_t* mastering =
+        av_stream_get_side_data(stream, AV_PKT_DATA_MASTERING_DISPLAY_METADATA, nullptr);
+    const uint8_t* cll =
+        av_stream_get_side_data(stream, AV_PKT_DATA_CONTENT_LIGHT_LEVEL, nullptr);
+#endif
+
+    bool had_luminance = false;
+    if (mastering) {
+        const auto* m = reinterpret_cast<const AVMasteringDisplayMetadata*>(mastering);
+        had_luminance = m->has_luminance;
+        masteringToHDR10(m, &hdr10_metadata_, &has_hdr10_metadata_);
+    }
+    if (cll) {
+        const auto* c = reinterpret_cast<const AVContentLightMetadata*>(cll);
+        hdr10_metadata_.max_cll = c->MaxCLL;
+        hdr10_metadata_.max_fall = c->MaxFALL;
+        has_hdr10_metadata_ = true;
+    }
+    if (had_luminance) {
+        tone_map_peak_ = peakFromMaxLuminance(hdr10_metadata_.max_luminance);
+    }
+
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(59, 3, 100)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(60, 29, 100)
+    const bool has_dovi =
+        av_packet_side_data_get(stream->codecpar->coded_side_data,
+                                stream->codecpar->nb_coded_side_data,
+                                AV_PKT_DATA_DOVI_CONF) != nullptr;
+#else
+    const bool has_dovi =
+        av_stream_get_side_data(stream, AV_PKT_DATA_DOVI_CONF, nullptr) != nullptr;
+#endif
+    if (has_dovi) {
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: Dolby Vision configuration present; the DV "
+               "enhancement layer and dynamic metadata are ignored (base layer decodes)"
+            << std::endl;
+    }
+#endif
+}
+
+void VideoReader::inspectFirstFrameSideData() {
+    if (first_frame_inspected_) {
+        return;
+    }
+    first_frame_inspected_ = true;
+
+    // The container does not always carry the SEI-level metadata, but the
+    // decoder attaches it to frames. Adopt it here if open() found nothing.
+    const AVFrameSideData* sd =
+        av_frame_get_side_data(frame_, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+    if (sd) {
+        const auto* m = reinterpret_cast<const AVMasteringDisplayMetadata*>(sd->data);
+        bool found = false;
+        masteringToHDR10(m, &hdr10_metadata_, &found);
+        if (found) {
+            has_hdr10_metadata_ = true;
+            if (m->has_luminance) {
+                tone_map_peak_ = peakFromMaxLuminance(hdr10_metadata_.max_luminance);
+            }
+        }
+    }
+    const AVFrameSideData* cll =
+        av_frame_get_side_data(frame_, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+    if (cll) {
+        const auto* c = reinterpret_cast<const AVContentLightMetadata*>(cll->data);
+        hdr10_metadata_.max_cll = c->MaxCLL;
+        hdr10_metadata_.max_fall = c->MaxFALL;
+        has_hdr10_metadata_ = true;
+    }
+
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(56, 30, 100)
+    if (av_frame_get_side_data(frame_, AV_FRAME_DATA_DYNAMIC_HDR_PLUS)) {
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: HDR10+ dynamic metadata present and ignored; "
+               "static tone mapping is used"
+            << std::endl;
+    }
+#endif
 }
 
 void VideoReader::configureScalerColorspace(SwsContext* ctx) {
@@ -446,38 +580,42 @@ void VideoReader::toneMapFrame() {
     constexpr float m10 = -0.1246f, m11 = 1.1329f, m12 = -0.0083f;
     constexpr float m20 = -0.0182f, m21 = -0.1006f, m22 = 1.1187f;
 
-    for (int y = 0; y < height_; y++) {
-        const uint16_t* src = reinterpret_cast<const uint16_t*>(frameBGR16_->data[0] +
-                                                                y * frameBGR16_->linesize[0]);
-        uint8_t* dst = frameBGR_->data[0] + static_cast<ptrdiff_t>(y) * frameBGR_->linesize[0];
+    const float peak = tone_map_peak_;
 
-        for (int x = 0; x < width_; x++) {
-            float b = linearLut_[src[3 * x + 0]];
-            float g = linearLut_[src[3 * x + 1]];
-            float r = linearLut_[src[3 * x + 2]];
+    cv::parallel_for_(cv::Range(0, height_), [&](const cv::Range& range) {
+        for (int y = range.start; y < range.end; y++) {
+            const uint16_t* src = reinterpret_cast<const uint16_t*>(
+                frameBGR16_->data[0] + static_cast<ptrdiff_t>(y) * frameBGR16_->linesize[0]);
+            uint8_t* dst =
+                frameBGR_->data[0] + static_cast<ptrdiff_t>(y) * frameBGR_->linesize[0];
 
-            // Luminance-based extended Reinhard preserves hue better than
-            // per-channel curves: scale all channels by the ratio of mapped to
-            // unmapped luminance (BT.2020 luma coefficients).
-            const float lum = 0.2627f * r + 0.6780f * g + 0.0593f * b;
-            if (lum > 0.0f) {
-                const float mapped =
-                    lum * (1.0f + lum / (kToneMapPeak * kToneMapPeak)) / (1.0f + lum);
-                const float s = mapped / lum;
-                r *= s;
-                g *= s;
-                b *= s;
+            for (int x = 0; x < width_; x++) {
+                float b = linearLut_[src[3 * x + 0]];
+                float g = linearLut_[src[3 * x + 1]];
+                float r = linearLut_[src[3 * x + 2]];
+
+                // Luminance-based extended Reinhard preserves hue better than
+                // per-channel curves: scale all channels by the ratio of mapped
+                // to unmapped luminance (BT.2020 luma coefficients).
+                const float lum = 0.2627f * r + 0.6780f * g + 0.0593f * b;
+                if (lum > 0.0f) {
+                    const float mapped = lum * (1.0f + lum / (peak * peak)) / (1.0f + lum);
+                    const float s = mapped / lum;
+                    r *= s;
+                    g *= s;
+                    b *= s;
+                }
+
+                const float r709 = m00 * r + m01 * g + m02 * b;
+                const float g709 = m10 * r + m11 * g + m12 * b;
+                const float b709 = m20 * r + m21 * g + m22 * b;
+
+                dst[3 * x + 0] = encodeBt709(b709);
+                dst[3 * x + 1] = encodeBt709(g709);
+                dst[3 * x + 2] = encodeBt709(r709);
             }
-
-            const float r709 = m00 * r + m01 * g + m02 * b;
-            const float g709 = m10 * r + m11 * g + m12 * b;
-            const float b709 = m20 * r + m21 * g + m22 * b;
-
-            dst[3 * x + 0] = encodeBt709(b709);
-            dst[3 * x + 1] = encodeBt709(g709);
-            dst[3 * x + 2] = encodeBt709(r709);
         }
-    }
+    });
 }
 
 // Decodes the next frame into frame_ and advances the position counters.
@@ -531,6 +669,8 @@ bool VideoReader::decodeNextFrame() {
             AVStream* stream = formatCtx_->streams[videoStreamIndex_];
             current_timestamp_ = frame_->pts * av_q2d(stream->time_base);
         }
+
+        inspectFirstFrameSideData();
 
         current_frame_++;
         return true;
@@ -612,14 +752,16 @@ bool VideoReader::readLinear(cv::Mat& frame) {
     ensureLinearLut();
 
     frame.create(height_, width_, CV_32FC3);
-    for (int y = 0; y < height_; y++) {
-        const uint16_t* src = reinterpret_cast<const uint16_t*>(frameBGR16_->data[0] +
-                                                                y * frameBGR16_->linesize[0]);
-        float* dst = frame.ptr<float>(y);
-        for (int x = 0; x < width_ * 3; x++) {
-            dst[x] = linearLut_[src[x]];
+    cv::parallel_for_(cv::Range(0, height_), [&](const cv::Range& range) {
+        for (int y = range.start; y < range.end; y++) {
+            const uint16_t* src = reinterpret_cast<const uint16_t*>(
+                frameBGR16_->data[0] + static_cast<ptrdiff_t>(y) * frameBGR16_->linesize[0]);
+            float* dst = frame.ptr<float>(y);
+            for (int x = 0; x < width_ * 3; x++) {
+                dst[x] = linearLut_[src[x]];
+            }
         }
-    }
+    });
     return true;
 }
 
@@ -695,8 +837,9 @@ bool VideoReader::seek(int64_t frame_number) {
 
         // av_seek_frame() tells us nothing about which frame index it landed
         // on, so decode one frame and recover the index from its timestamp.
-        cv::Mat tempFrame;
-        if (!read(tempFrame)) {
+        // Decode only -- scanned frames are discarded, so running the BGR
+        // conversion (and tone mapping) on them would be pure waste.
+        if (!decodeNextFrame()) {
             return false;
         }
 
@@ -736,11 +879,10 @@ bool VideoReader::seek(int64_t frame_number) {
         // we are now positioned one past it.
         current_frame_ = keyframe_index + 1;
 
-        while (current_frame_ < frame_number && read(tempFrame)) {
+        while (current_frame_ < frame_number && decodeNextFrame()) {
         }
     } else {
-        cv::Mat tempFrame;
-        while (current_frame_ < frame_number && read(tempFrame)) {
+        while (current_frame_ < frame_number && decodeNextFrame()) {
         }
     }
 
@@ -801,6 +943,10 @@ void VideoReader::cleanup() {
     current_timestamp_ = 0.0;
     tone_map_active_ = false;
     linearLut_.clear();
+    hdr10_metadata_ = HDR10Metadata{};
+    has_hdr10_metadata_ = false;
+    first_frame_inspected_ = false;
+    tone_map_peak_ = 10.0f;
 }
 
 AVPixelFormat VideoReader::getPixelFormat() const {

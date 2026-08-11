@@ -76,9 +76,12 @@ static cv::Mat numpy_to_mat(py::array arr) {
     } else if (buf.format == py::format_descriptor<uint16_t>::format()) {
         return cv::Mat(rows, cols, CV_16UC3, buf.ptr,
                        static_cast<size_t>(buf.strides[0]));
+    } else if (buf.format == py::format_descriptor<float>::format()) {
+        return cv::Mat(rows, cols, CV_32FC3, buf.ptr,
+                       static_cast<size_t>(buf.strides[0]));
     }
 
-    throw py::type_error("Expected uint8 or uint16 array");
+    throw py::type_error("Expected uint8, uint16 or float32 array");
 }
 
 PYBIND11_MODULE(_framewright, m) {
@@ -215,6 +218,16 @@ PYBIND11_MODULE(_framewright, m) {
         .def_property_readonly("tone_mapping_active",
                                &framewright::VideoReader::isToneMappingActive,
                                "True when the source is PQ/HLG and read() is tone mapping it.")
+        .def_property_readonly("has_hdr10_metadata",
+                               &framewright::VideoReader::hasHDR10Metadata,
+                               "True once HDR10 static metadata was found in the source\n"
+                               "(may turn true after the first read -- the decoder surfaces\n"
+                               "SEI metadata on frames).")
+        .def_property_readonly("hdr10_metadata",
+                               &framewright::VideoReader::getHDR10Metadata,
+                               py::return_value_policy::copy,
+                               "The source's HDR10 static metadata (defaults if none found).\n"
+                               "Its max_luminance also drives the tone-mapping peak.")
         .def("__enter__", [](framewright::VideoReader& self) -> framewright::VideoReader& {
             return self;
         })
@@ -295,6 +308,14 @@ PYBIND11_MODULE(_framewright, m) {
              },
              py::arg("frame"),
              "Write a BGR frame (uint8 or uint16 numpy array with shape (H, W, 3)).")
+        .def("write_linear", [](framewright::VideoWriter& self, py::array frame) {
+                cv::Mat mat = numpy_to_mat(frame);
+                return self.writeLinear(mat);
+             },
+             py::arg("frame"),
+             "Write a linear-light BGR frame (float32 numpy array, shape (H, W, 3),\n"
+             "1.0 == SDR reference white -- the convention read_linear() produces).\n"
+             "PQ-encoded in HDR mode, BT.709-encoded in SDR mode.")
         .def("release", &framewright::VideoWriter::release,
              "Flush and finalize the file.")
         .def("set_hdr10_metadata", &framewright::VideoWriter::setHDR10Metadata,

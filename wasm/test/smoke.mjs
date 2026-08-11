@@ -52,6 +52,23 @@ M.FS.writeFile("/in.mp4", readFileSync(fixture));
   r.delete();
 }
 
+// --- readRGBA: canvas-ready output -----------------------------------------
+{
+  const r = new M.VideoReader();
+  r.open("/in.mp4", false, false, false);
+  const f = r.readRGBA();
+  check("readRGBA returns Uint8ClampedArray",
+        f instanceof Uint8ClampedArray && f.length === 192 * 108 * 4);
+  const c = (54 * 192 + 96) * 4;
+  // RGBA order with alpha 255; same values as the BGR passthrough read.
+  check("readRGBA R", Math.abs(f[c + 0] - 208) <= 3, `${f[c + 0]}`);
+  check("readRGBA G", Math.abs(f[c + 1] - 64) <= 3, `${f[c + 1]}`);
+  check("readRGBA B", Math.abs(f[c + 2] - 32) <= 3, `${f[c + 2]}`);
+  check("readRGBA alpha", f[c + 3] === 255);
+  r.close();
+  r.delete();
+}
+
 // --- read16: code values at full precision ---------------------------------
 {
   const r = new M.VideoReader();

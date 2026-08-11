@@ -57,8 +57,16 @@ same way. To show a frame on a canvas, expand BGR→RGBA into an `ImageData`.
 | Method | Returns | What you get |
 |--------|---------|--------------|
 | `read()` | `Uint8Array` | 8-bit BGR. With `tone_map_hdr=true`, HDR is tone mapped to display-ready SDR; otherwise matrix-only conversion (HDR stays HDR-encoded) |
+| `readRGBA()` | `Uint8ClampedArray` | Same as `read()` but RGBA — drop straight into an `ImageData` for canvas rendering |
 | `read16()` | `Uint16Array` | Source code values at full precision — PQ/HLG left encoded, for custom pipelines |
 | `readLinear()` | `Float32Array` | Linear light, `1.0` = SDR reference white (100 nits); HDR highlights exceed 1.0. Primaries unchanged |
+
+## Browser demo
+
+`wasm/demo/index.html` is a self-contained demo: serve the `wasm/` directory
+(`python3 -m http.server`), open the page, and drop in an HDR video — it
+decodes and tone maps entirely client-side, with a toggle to see the
+washed-out colors a naive decode produces.
 
 See [docs/COLOR.md](../docs/COLOR.md) for what these terms mean and how to
 choose.

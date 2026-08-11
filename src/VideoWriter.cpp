@@ -2,10 +2,35 @@
 
 #include "framewright/LogLevel.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 
 namespace framewright {
+
+namespace {
+
+// SMPTE ST 2084 (PQ) inverse EOTF: display luminance in nits -> normalized
+// code value. The exact inverse of the EOTF the reader linearizes with.
+double pqInverseEotf(double nits) {
+    constexpr double m1 = 2610.0 / 16384.0;
+    constexpr double m2 = 2523.0 / 4096.0 * 128.0;
+    constexpr double c1 = 3424.0 / 4096.0;
+    constexpr double c2 = 2413.0 / 4096.0 * 32.0;
+    constexpr double c3 = 2392.0 / 4096.0 * 32.0;
+
+    double y = std::min(std::max(nits / 10000.0, 0.0), 1.0);
+    double p = std::pow(y, m1);
+    return std::pow((c1 + c2 * p) / (1.0 + c3 * p), m2);
+}
+
+// BT.709 OETF, matching how the reader's SDR readLinear() linearizes.
+double bt709Oetf(double lin) {
+    lin = std::min(std::max(lin, 0.0), 1.0);
+    return lin < 0.018 ? 4.5 * lin : 1.099 * std::pow(lin, 0.45) - 0.099;
+}
+
+} // namespace
 
 VideoWriter::VideoWriter() { av_log_set_level(AV_LOG_QUIET); }
 
@@ -531,6 +556,51 @@ bool VideoWriter::write(const cv::Mat& image) {
 
     av_packet_free(&packet);
     return true;
+}
+
+bool VideoWriter::writeLinear(const cv::Mat& image) {
+    if (image.empty()) {
+        detail::log(LogLevel::Error) << "Empty frame provided." << std::endl;
+        return false;
+    }
+    if (image.type() != CV_32FC3) {
+        detail::log(LogLevel::Error) << "writeLinear() expects CV_32FC3 linear-light BGR."
+                                     << std::endl;
+        return false;
+    }
+    if (image.cols != width_ || image.rows != height_) {
+        detail::log(LogLevel::Error) << "Frame dimensions " << image.cols << "x" << image.rows
+                  << " do not match writer dimensions " << width_ << "x" << height_ << std::endl;
+        return false;
+    }
+
+    if (is_10bit_) {
+        cv::Mat encoded(height_, width_, CV_16UC3);
+        cv::parallel_for_(cv::Range(0, height_), [&](const cv::Range& range) {
+            for (int y = range.start; y < range.end; y++) {
+                const float* src = image.ptr<float>(y);
+                uint16_t* dst = encoded.ptr<uint16_t>(y);
+                for (int x = 0; x < width_ * 3; x++) {
+                    // 1.0 == SDR reference white == 100 nits.
+                    double e = pqInverseEotf(static_cast<double>(src[x]) * 100.0);
+                    dst[x] = static_cast<uint16_t>(std::lround(e * 65535.0));
+                }
+            }
+        });
+        return write(encoded);
+    }
+
+    cv::Mat encoded(height_, width_, CV_8UC3);
+    cv::parallel_for_(cv::Range(0, height_), [&](const cv::Range& range) {
+        for (int y = range.start; y < range.end; y++) {
+            const float* src = image.ptr<float>(y);
+            uint8_t* dst = encoded.ptr<uint8_t>(y);
+            for (int x = 0; x < width_ * 3; x++) {
+                dst[x] = static_cast<uint8_t>(std::lround(bt709Oetf(src[x]) * 255.0));
+            }
+        }
+    });
+    return write(encoded);
 }
 
 void VideoWriter::release() {

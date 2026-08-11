@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "framewright"
-version = "0.1.0"
+version = "0.2.0"
 description = "Color-correct video I/O — drop-in replacement for OpenCV VideoCapture/VideoWriter"
 readme = "README.md"
 license = {text = "MIT"}

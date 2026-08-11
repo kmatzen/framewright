@@ -1,8 +1,11 @@
-name: Release to PyPI
+name: Release
 
+# Pushing a v* tag drives the whole release: sdist + WASM artifacts are
+# built, a GitHub release is created with the artifacts attached, and the
+# sdist is published to PyPI via trusted publishing.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 jobs:
   build-sdist:
@@ -26,6 +29,68 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
+  build-wasm:
+    runs-on: ubuntu-24.04
+    name: Build WASM module
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same cache key as ci.yml, so the tag build reuses the deps compiled
+      # on main and only relinks the module.
+      - name: Cache WASM dependencies
+        id: wasm-deps
+        uses: actions/cache@v4
+        with:
+          path: wasm/deps
+          key: wasm-deps-v1-emsdk6.0.6-ffn6.1.2-ocv4.10.0-${{ hashFiles('wasm/build.sh') }}
+
+      - name: Set up Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.6
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.6
+
+      - name: Fetch dependency sources
+        if: steps.wasm-deps.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch n6.1.2 https://github.com/FFmpeg/FFmpeg.git "$RUNNER_TEMP/ffmpeg-src"
+          git clone --depth 1 --branch 4.10.0 https://github.com/opencv/opencv.git "$RUNNER_TEMP/opencv-src"
+
+      - name: Build WASM module
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          FFMPEG_SRC="$RUNNER_TEMP/ffmpeg-src" OPENCV_SRC="$RUNNER_TEMP/opencv-src" ./wasm/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: |
+            wasm/dist/framewright.js
+            wasm/dist/framewright.wasm
+
+  github-release:
+    needs: [build-sdist, build-wasm]
+    runs-on: ubuntu-24.04
+    name: Create GitHub release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release with artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "framewright $GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/*.tar.gz artifacts/framewright.js artifacts/framewright.wasm
+
   publish:
     needs: [build-sdist]
     runs-on: ubuntu-24.04
@@ -39,7 +104,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: sdist
           path: dist
-          merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1
