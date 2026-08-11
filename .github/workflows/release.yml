@@ -59,6 +59,23 @@ jobs:
           pip install cibuildwheel
           python -m cibuildwheel --output-dir wheelhouse
 
+      # PyPI rejects plain linux_* platform tags. cibuildwheel's auditwheel
+      # repair step is what retags to manylinux, and it only succeeds when the
+      # binary meets the policy -- but make the requirement explicit so a
+      # config regression (e.g. someone disabling the repair command) fails
+      # here instead of at upload time.
+      - name: Require manylinux tags (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bad=0
+          for whl in wheelhouse/*.whl; do
+            case "$(basename "$whl")" in
+              *manylinux*) echo "ok: $(basename "$whl")" ;;
+              *) echo "::error::not manylinux-tagged: $(basename "$whl")"; bad=1 ;;
+            esac
+          done
+          exit $bad
+
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.name }}
