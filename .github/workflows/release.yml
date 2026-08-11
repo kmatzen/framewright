@@ -1,11 +1,22 @@
 name: Release
 
-# Pushing a v* tag drives the whole release: sdist + WASM artifacts are
-# built, a GitHub release is created with the artifacts attached, and the
-# sdist is published to PyPI via trusted publishing.
+# Two entry points, one flow: pushing a v* tag, or dispatching with a
+# version input (which creates the tag). Either way the sdist + WASM
+# artifacts are built, a GitHub release is created with the artifacts
+# attached, and the sdist is published to PyPI via trusted publishing.
+# Every step is idempotent, so the tag push that release creation itself
+# triggers re-runs the workflow harmlessly.
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. v0.2.0"
+        required: true
   push:
     tags: ["v*"]
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
   build-sdist:
@@ -86,8 +97,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "framewright $GITHUB_REF_NAME" \
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "release $RELEASE_TAG already exists, skipping creation"
+            exit 0
+          fi
+          # --target pins the tag gh creates when it does not exist yet
+          # (workflow_dispatch); on a tag-push run the tag already exists and
+          # the target is ignored.
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "framewright $RELEASE_TAG" \
             --generate-notes \
             artifacts/*.tar.gz artifacts/framewright.js artifacts/framewright.wasm
 
@@ -108,3 +127,7 @@ jobs:
           path: dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # The dispatch run and the tag push it causes both publish; the
+          # second upload of the same version is skipped instead of failing.
+          skip-existing: true
