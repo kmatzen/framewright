@@ -99,6 +99,19 @@ class VideoReader {
     /// VideoWriter::write(CV_16UC3) in HDR mode. The frame is a deep copy.
     bool read16(cv::Mat& frame);
 
+    /// Read the next frame as linear-light float BGR (CV_32FC3).
+    ///
+    /// The transfer function is removed: PQ via the SMPTE ST 2084 EOTF, HLG
+    /// via its inverse OETF plus the nominal 1000-nit display OOTF, and
+    /// everything else via the inverse BT.709 OETF. Values are
+    /// display-referred and normalized so 1.0 == SDR reference white
+    /// (100 nits); HDR highlights exceed 1.0 (PQ's 10000-nit peak maps to
+    /// 100.0). No tone mapping is applied, and the primaries are NOT
+    /// converted -- they remain the source's own (see getColorPrimaries()),
+    /// so BT.2020 content needs a gamut conversion before display on an
+    /// sRGB/BT.709 screen. The frame is a deep copy.
+    bool readLinear(cv::Mat& frame);
+
     /// Seek to a specific frame number (forward and backward, best effort).
     bool seek(int64_t frame_number);
 
@@ -153,8 +166,9 @@ class VideoReader {
     bool convertToBGR16();
     /// Tone map frameBGR16_ (linear-light via LUT) into frameBGR_.
     void toneMapFrame();
-    /// Build the 16-bit-code -> linear-light LUT for the source transfer.
-    void buildToneMapLut();
+    /// Build the 16-bit-code -> linear-light LUT for the source transfer,
+    /// if not built yet. Shared by tone mapping and readLinear().
+    void ensureLinearLut();
 
     AVFormatContext* formatCtx_ = nullptr;
     AVCodecContext* codecCtx_ = nullptr;
@@ -179,8 +193,9 @@ class VideoReader {
     bool tone_map_active_ = false;
 
     /// 16-bit code value -> linear light in SDR-reference-white units
-    /// (1.0 == 100 nits). Populated only when tone mapping is active.
-    std::vector<float> toneMapLut_;
+    /// (1.0 == 100 nits). Built lazily for readLinear(), eagerly when tone
+    /// mapping is active.
+    std::vector<float> linearLut_;
 };
 
 } // namespace framewright

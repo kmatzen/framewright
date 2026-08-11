@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `VideoReader`: `readLinear()` returns CV_32FC3 linear-light BGR — PQ/HLG
+  linearized per spec, SDR via the inverse BT.709 OETF, normalized so 1.0 ==
+  SDR reference white; primaries left unconverted
+- JavaScript/WASM support: Emscripten build (`wasm/build.sh`) producing an ES
+  module for Node ≥ 18 and browsers, exposing the full reader surface
+  (`read`/`read16`/`readLinear`, tone mapping, color metadata) and FFV1
+  lossless writing; Node smoke test included
+- Python: `read_linear()`
+- `docs/COLOR.md`: an educational guide to color matrices, range, primaries,
+  transfer functions, linear light, HDR, and tone mapping
 - `VideoReader`: opt-in HDR-to-SDR tone mapping (`HdrMode::ToneMapSDR`) — PQ and
   HLG sources are linearized, tone mapped (extended Reinhard, 1000-nit assumed
   peak), gamut mapped BT.2020 → BT.709 and encoded with BT.709 gamma (#76, #77)

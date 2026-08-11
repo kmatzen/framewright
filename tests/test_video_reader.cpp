@@ -583,6 +583,59 @@ TEST_CASE("VideoReader ToneMapSDR leaves SDR sources untouched", "[reader][hdr]"
     CHECK(cv::norm(plain, mapped, cv::NORM_INF) == 0.0);
 }
 
+TEST_CASE("VideoReader readLinear linearizes PQ against the reference EOTF",
+          "[reader][hdr][color]") {
+    // Raw code values first, so the reference is fed measured data.
+    cv::Vec3w code16;
+    {
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(fixtures + "/hdr10_tonemap.mp4"));
+        cv::Mat raw;
+        REQUIRE(reader.read16(raw));
+        code16 = raw.at<cv::Vec3w>(raw.rows / 2, raw.cols / 2);
+    }
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/hdr10_tonemap.mp4"));
+    cv::Mat lin;
+    REQUIRE(reader.readLinear(lin));
+    REQUIRE(lin.type() == CV_32FC3);
+    cv::Vec3f actual = lin.at<cv::Vec3f>(lin.rows / 2, lin.cols / 2);
+
+    for (int i = 0; i < 3; i++) {
+        double expected = hdr_reference::pqEotf(code16[i] / 65535.0) / 100.0;
+        CHECK_THAT(actual[i], Catch::Matchers::WithinRel(expected, 0.02));
+    }
+}
+
+TEST_CASE("VideoReader readLinear uses the inverse BT.709 OETF for SDR",
+          "[reader][hdr][color]") {
+    cv::Vec3b code8;
+    {
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+        cv::Mat raw;
+        REQUIRE(reader.read(raw));
+        code8 = raw.at<cv::Vec3b>(raw.rows / 2, raw.cols / 2);
+    }
+
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+    cv::Mat lin;
+    REQUIRE(reader.readLinear(lin));
+    REQUIRE(lin.type() == CV_32FC3);
+    cv::Vec3f actual = lin.at<cv::Vec3f>(lin.rows / 2, lin.cols / 2);
+
+    for (int i = 0; i < 3; i++) {
+        double e = code8[i] / 255.0;
+        double expected =
+            e < 0.018 * 4.5 ? e / 4.5 : std::pow((e + 0.099) / 1.099, 1.0 / 0.45);
+        // Absolute tolerance: the 8-bit and 16-bit decodes round independently,
+        // so a relative bound is meaningless for near-black channels.
+        CHECK(std::abs(actual[i] - expected) <= 0.02);
+    }
+}
+
 TEST_CASE("VideoReader read16 works on 8-bit SDR sources", "[reader][hdr]") {
     framewright::VideoReader reader;
     REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));

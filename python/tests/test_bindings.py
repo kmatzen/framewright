@@ -279,6 +279,20 @@ class TestHdrReading:
         assert not r.tone_mapping_active
         r.close()
 
+    def test_read_linear_returns_float32(self, hdr10_matrix):
+        r = framewright.VideoReader()
+        assert r.open(hdr10_matrix)
+        frame = r.read_linear()
+        assert frame is not None
+        assert frame.dtype == np.float32
+        assert frame.shape == (108, 192, 3)
+        # PQ code 208/255 is ~1800 nits: linear red must exceed SDR white
+        # (1.0), which no gamma-encoded or code-value reading would produce.
+        center = frame[54, 96]
+        assert center[2] > 1.0
+        assert center[0] < center[1] < center[2]
+        r.close()
+
 
 # --------------------------------------------------------------------------- #
 # LogLevel

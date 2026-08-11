@@ -153,3 +153,50 @@ jobs:
           export PYTHONPATH="$PWD/build:$PWD/python"
           export TEST_FIXTURES_DIR="$PWD/build/test_fixtures"
           pytest python/tests/ -v
+
+  wasm:
+    runs-on: ubuntu-24.04
+    name: WASM (Node)
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # ffmpeg CLI (with libx265) only generates the smoke-test fixture; the
+      # WASM module itself uses the Emscripten-built FFmpeg from wasm/deps.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      # FFmpeg + OpenCV core compiled to WASM change only when build.sh (or
+      # the pinned versions in this workflow) change, so cache the deps tree.
+      # On a hit, build.sh skips both dependency builds and only relinks the
+      # framewright module (~1 min).
+      - name: Cache WASM dependencies
+        id: wasm-deps
+        uses: actions/cache@v4
+        with:
+          path: wasm/deps
+          key: wasm-deps-v1-emsdk6.0.6-ffn6.1.2-ocv4.10.0-${{ hashFiles('wasm/build.sh') }}
+
+      - name: Set up Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.6
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.6
+
+      - name: Fetch dependency sources
+        if: steps.wasm-deps.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch n6.1.2 https://github.com/FFmpeg/FFmpeg.git "$RUNNER_TEMP/ffmpeg-src"
+          git clone --depth 1 --branch 4.10.0 https://github.com/opencv/opencv.git "$RUNNER_TEMP/opencv-src"
+
+      - name: Build WASM module
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          FFMPEG_SRC="$RUNNER_TEMP/ffmpeg-src" OPENCV_SRC="$RUNNER_TEMP/opencv-src" ./wasm/build.sh
+
+      - name: Smoke test (Node)
+        run: |
+          ./wasm/test/gen_fixture.sh "$RUNNER_TEMP/hdr10_matrix.mp4"
+          node wasm/test/smoke.mjs "$RUNNER_TEMP/hdr10_matrix.mp4"
