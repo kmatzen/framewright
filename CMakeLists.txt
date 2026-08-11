@@ -221,6 +221,64 @@ if(FRAMEWRIGHT_BUILD_TESTS)
             set(HAVE_HDR_FIXTURE FALSE)
             message(STATUS "HDR fixture: DISABLED, libx265 not available")
         endif()
+
+        # HDR fixtures with exactly-known code values, for pixel-accuracy
+        # tests. The RGB literal is converted to BT.2020 YUV by zscale (zimg)
+        # when available -- an implementation independent of the swscale the
+        # reader uses, so agreement between the two is meaningful -- with
+        # x265 lossless preserving the code values exactly. Falls back to
+        # swscale with accurate_rnd, which stays within the tests' tolerance.
+        # The color tags are written into the HEVC VUI via x265-params, not
+        # only via ffmpeg's -color_* stream flags: whether those flags survive
+        # into the bitstream depends on the ffmpeg version (Homebrew's drops
+        # color_trc), and the reader looks at what the decoder reports.
+        function(generate_hdr_pixel_fixture color trc output result_var)
+            set(_x265_vui
+                "lossless=1:colorprim=bt2020:transfer=${trc}:colormatrix=bt2020nc:range=limited")
+            execute_process(
+                COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi
+                    -i "color=c=${color}:size=192x108:rate=30:duration=0.1"
+                    -vf "format=gbrp,zscale=matrix=2020_ncl:range=limited:rangein=full,format=yuv420p10le"
+                    -c:v libx265 -x265-params "${_x265_vui}"
+                    -colorspace bt2020nc -color_primaries bt2020 -color_trc ${trc}
+                    -color_range tv -tag:v hvc1
+                    "${TEST_FIXTURES_DIR}/${output}"
+                RESULT_VARIABLE _gen_result
+                OUTPUT_QUIET ERROR_QUIET
+            )
+            if(NOT _gen_result EQUAL 0)
+                execute_process(
+                    COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi
+                        -i "color=c=${color}:size=192x108:rate=30:duration=0.1"
+                        -vf "scale=out_color_matrix=bt2020:out_range=tv:flags=accurate_rnd+bitexact+full_chroma_int"
+                        -pix_fmt yuv420p10le
+                        -c:v libx265 -x265-params "${_x265_vui}"
+                        -colorspace bt2020nc -color_primaries bt2020 -color_trc ${trc}
+                        -color_range tv -tag:v hvc1
+                        "${TEST_FIXTURES_DIR}/${output}"
+                    RESULT_VARIABLE _gen_result
+                    OUTPUT_QUIET ERROR_QUIET
+                )
+            endif()
+            set(${result_var} ${_gen_result} PARENT_SCOPE)
+        endfunction()
+
+        # A saturated color whose BT.2020-vs-BT.709 matrix mismatch is ~7
+        # counts, so decoding with the wrong matrix fails the pixel checks.
+        generate_hdr_pixel_fixture("0xD04020" "smpte2084" "hdr10_matrix.mp4" HDR_MATRIX_RESULT)
+        # A low-saturation mid-luminance color whose tone-mapped output stays
+        # clear of 0/255 clipping on every channel, so the full PQ/HLG ->
+        # linear -> gamut -> gamma pipeline is visible in the result.
+        generate_hdr_pixel_fixture("0x8C966E" "smpte2084" "hdr10_tonemap.mp4" HDR_TONEMAP_RESULT)
+        generate_hdr_pixel_fixture("0x8C966E" "arib-std-b67" "hlg_tonemap.mp4" HLG_TONEMAP_RESULT)
+
+        if(HDR_MATRIX_RESULT EQUAL 0 AND HDR_TONEMAP_RESULT EQUAL 0 AND HLG_TONEMAP_RESULT EQUAL 0)
+            set(HAVE_HDR_PIXEL_FIXTURES TRUE)
+            message(STATUS "HDR pixel fixture: enabled")
+        else()
+            set(HAVE_HDR_PIXEL_FIXTURES FALSE)
+            message(STATUS "HDR pixel fixture: DISABLED, ffmpeg or libx265 missing pieces")
+        endif()
     else()
         message(WARNING "ffmpeg not found, test fixtures will not be generated")
     endif()
@@ -245,6 +303,10 @@ if(FRAMEWRIGHT_BUILD_TESTS)
 
     if(HAVE_HDR_FIXTURE)
         target_compile_definitions(framewright_tests PRIVATE HAVE_HDR_FIXTURE)
+    endif()
+
+    if(HAVE_HDR_PIXEL_FIXTURES)
+        target_compile_definitions(framewright_tests PRIVATE HAVE_HDR_PIXEL_FIXTURES)
     endif()
 
     if(HAVE_SEEK_FIXTURE)
