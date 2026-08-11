@@ -74,7 +74,7 @@ VideoReader::VideoReader(VideoReader&& other) noexcept
       force_full_range_(other.force_full_range_),
       hdr_mode_(other.hdr_mode_),
       tone_map_active_(other.tone_map_active_),
-      toneMapLut_(std::move(other.toneMapLut_)) {
+      linearLut_(std::move(other.linearLut_)) {
     other.formatCtx_ = nullptr;
     other.codecCtx_ = nullptr;
     other.frame_ = nullptr;
@@ -107,7 +107,7 @@ VideoReader& VideoReader::operator=(VideoReader&& other) noexcept {
         force_full_range_ = other.force_full_range_;
         hdr_mode_ = other.hdr_mode_;
         tone_map_active_ = other.tone_map_active_;
-        toneMapLut_ = std::move(other.toneMapLut_);
+        linearLut_ = std::move(other.linearLut_);
 
         other.formatCtx_ = nullptr;
         other.codecCtx_ = nullptr;
@@ -250,7 +250,7 @@ bool VideoReader::open(const std::string& filename, const VideoReaderOptions& op
             cleanup();
             return false;
         }
-        buildToneMapLut();
+        ensureLinearLut();
     }
 
     detail::log(LogLevel::Info) << "framewright::VideoReader: Opened " << filename << std::endl;
@@ -413,21 +413,30 @@ bool VideoReader::ensure16BitScaler() {
     return true;
 }
 
-void VideoReader::buildToneMapLut() {
-    const bool is_hlg = (codecCtx_->color_trc == AVCOL_TRC_ARIB_STD_B67);
+void VideoReader::ensureLinearLut() {
+    if (!linearLut_.empty()) {
+        return;
+    }
 
-    toneMapLut_.resize(65536);
+    const AVColorTransferCharacteristic trc = codecCtx_->color_trc;
+
+    linearLut_.resize(65536);
     for (int i = 0; i < 65536; i++) {
         const double e = i / 65535.0;
         double linear;
-        if (is_hlg) {
+        if (trc == AVCOL_TRC_ARIB_STD_B67) {
             // Scene-linear via the inverse OETF, then the nominal 1000-nit HLG
             // display OOTF (gamma 1.2), expressed relative to 100-nit SDR white.
             linear = 10.0 * std::pow(hlgInverseOetf(e), 1.2);
-        } else {
+        } else if (trc == AVCOL_TRC_SMPTE2084) {
             linear = pqEotf(e) / 100.0;
+        } else {
+            // SDR (and anything untagged): inverse BT.709 OETF, so SDR
+            // reference white lands exactly on 1.0.
+            linear = e < 0.018 * 4.5 ? e / 4.5
+                                     : std::pow((e + 0.099) / 1.099, 1.0 / 0.45);
         }
-        toneMapLut_[i] = static_cast<float>(linear);
+        linearLut_[i] = static_cast<float>(linear);
     }
 }
 
@@ -443,9 +452,9 @@ void VideoReader::toneMapFrame() {
         uint8_t* dst = frameBGR_->data[0] + static_cast<ptrdiff_t>(y) * frameBGR_->linesize[0];
 
         for (int x = 0; x < width_; x++) {
-            float b = toneMapLut_[src[3 * x + 0]];
-            float g = toneMapLut_[src[3 * x + 1]];
-            float r = toneMapLut_[src[3 * x + 2]];
+            float b = linearLut_[src[3 * x + 0]];
+            float g = linearLut_[src[3 * x + 1]];
+            float r = linearLut_[src[3 * x + 2]];
 
             // Luminance-based extended Reinhard preserves hue better than
             // per-channel curves: scale all channels by the ratio of mapped to
@@ -590,6 +599,27 @@ bool VideoReader::read16(cv::Mat& frame) {
     }
     frame = cv::Mat(height_, width_, CV_16UC3, frameBGR16_->data[0], frameBGR16_->linesize[0])
                 .clone();
+    return true;
+}
+
+bool VideoReader::readLinear(cv::Mat& frame) {
+    if (!formatCtx_ || !codecCtx_) {
+        return false;
+    }
+    if (!decodeNextFrame() || !convertToBGR16()) {
+        return false;
+    }
+    ensureLinearLut();
+
+    frame.create(height_, width_, CV_32FC3);
+    for (int y = 0; y < height_; y++) {
+        const uint16_t* src = reinterpret_cast<const uint16_t*>(frameBGR16_->data[0] +
+                                                                y * frameBGR16_->linesize[0]);
+        float* dst = frame.ptr<float>(y);
+        for (int x = 0; x < width_ * 3; x++) {
+            dst[x] = linearLut_[src[x]];
+        }
+    }
     return true;
 }
 
@@ -770,7 +800,7 @@ void VideoReader::cleanup() {
     current_frame_ = 0;
     current_timestamp_ = 0.0;
     tone_map_active_ = false;
-    toneMapLut_.clear();
+    linearLut_.clear();
 }
 
 AVPixelFormat VideoReader::getPixelFormat() const {

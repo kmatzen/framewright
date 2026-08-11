@@ -2,6 +2,8 @@
 
 A drop-in replacement for `cv::VideoCapture` and `cv::VideoWriter` that gives you frame-precise seeking, color space control, HDR10 writing, and lossless encoding.
 
+Available for **C++**, **Python**, and **JavaScript** — Node.js and browsers via WebAssembly (see [wasm/README.md](wasm/README.md)).
+
 ## What framewright adds over OpenCV
 
 ### Reading
@@ -149,11 +151,21 @@ reader.read(frame);   // CV_8UC3, looks right on an SDR display
 reader.open("hdr10.mp4");
 reader.read16(frame); // CV_16UC3; pair with getColorTransfer()/getColorPrimaries()
 
+// 2b. Linear light for image math: transfer function removed (PQ/HLG/SDR),
+//     float BGR normalized so 1.0 == SDR reference white (100 nits).
+//     HDR highlights exceed 1.0. Primaries unchanged.
+reader.readLinear(frame); // CV_32FC3
+
 // 3. Default read() is unchanged: matrix-only conversion. For HDR sources the
 //    result remains HDR-encoded (washed out as sRGB) and a warning is logged.
 ```
 
-Python: `reader.open("hdr10.mp4", tone_map_hdr=True)` and `reader.read16()`.
+Python: `reader.open("hdr10.mp4", tone_map_hdr=True)`, `reader.read16()`,
+`reader.read_linear()`.
+
+New to color management? [docs/COLOR.md](docs/COLOR.md) explains matrices,
+range, primaries, transfer functions, linear light, and tone mapping — and
+which framewright call gives you which.
 
 Only codec-level color metadata is honored. Frame-level dynamic metadata
 (HDR10+, Dolby Vision RPUs) is ignored: Dolby Vision profile 5 content
@@ -216,6 +228,7 @@ framewright::setLogLevel(framewright::LogLevel::Quiet);    // Silence all output
 | `read(frame)` | Read the next frame as BGR `cv::Mat` (cloned, always safe) |
 | `readRef(frame)` | Read the next frame without copying (valid until next read) |
 | `read16(frame)` | Read as CV_16UC3 with source code values preserved (no transfer applied) |
+| `readLinear(frame)` | Read as CV_32FC3 linear light (1.0 = SDR white, source primaries) |
 | `seek(frame_number)` | Seek to a frame (forward and backward) |
 | `getPixelFormat()`, `getCodecID()` | Source format info |
 | `getColorSpace()`, `getColorRange()` | Color metadata |
