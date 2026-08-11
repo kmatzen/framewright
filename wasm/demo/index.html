@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>framewright — HDR video in the browser</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 15px/1.5 system-ui, sans-serif;
+    max-width: 900px; margin: 2rem auto; padding: 0 1rem;
+  }
+  h1 { font-size: 1.4rem; }
+  #drop {
+    border: 2px dashed color-mix(in srgb, currentColor 40%, transparent);
+    border-radius: 8px; padding: 2.5rem 1rem; text-align: center;
+    cursor: pointer; margin: 1rem 0;
+  }
+  #drop.hover { border-color: #4a90d9; background: color-mix(in srgb, #4a90d9 8%, transparent); }
+  #meta { font-family: ui-monospace, monospace; font-size: 0.85rem; white-space: pre-wrap; }
+  canvas { max-width: 100%; border-radius: 4px; background: #000; }
+  label { user-select: none; }
+  .row { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
+</style>
+</head>
+<body>
+<h1>framewright — color-correct (HDR) video decoding in the browser</h1>
+<p>
+  Pick a video — ideally HDR10/HLG (an iPhone recording, for example). It is
+  decoded entirely in WebAssembly with the correct BT.2020/BT.709 color
+  matrix, and HDR sources are tone mapped to display-ready SDR. Compare with
+  the tone mapping off to see the washed-out colors every naive decoder
+  produces.
+</p>
+<div id="drop">Drop a video here, or click to choose a file</div>
+<input type="file" id="file" accept="video/*" hidden>
+<div class="row">
+  <label><input type="checkbox" id="tonemap" checked> Tone map HDR → SDR</label>
+  <span id="status"></span>
+</div>
+<pre id="meta"></pre>
+<canvas id="canvas" hidden></canvas>
+
+<script type="module">
+  import createFramewright from "../dist/framewright.js";
+
+  const drop = document.getElementById("drop");
+  const fileInput = document.getElementById("file");
+  const canvas = document.getElementById("canvas");
+  const meta = document.getElementById("meta");
+  const status = document.getElementById("status");
+  const tonemap = document.getElementById("tonemap");
+
+  const M = await createFramewright();
+  status.textContent = "module loaded";
+
+  let currentBytes = null;
+  let playToken = 0;
+
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("hover"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("hover");
+    if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files[0]) loadFile(fileInput.files[0]);
+  });
+  tonemap.addEventListener("change", () => {
+    if (currentBytes) play(currentBytes);
+  });
+
+  async function loadFile(file) {
+    status.textContent = `loading ${file.name}…`;
+    currentBytes = new Uint8Array(await file.arrayBuffer());
+    play(currentBytes);
+  }
+
+  function play(bytes) {
+    const token = ++playToken;
+    try { M.FS.unlink("/video"); } catch {}
+    M.FS.writeFile("/video", bytes);
+
+    const r = new M.VideoReader();
+    if (!r.open("/video", false, false, tonemap.checked)) {
+      status.textContent = "could not open this file (unsupported codec/container?)";
+      r.delete();
+      return;
+    }
+
+    meta.textContent =
+      `resolution:  ${r.width()}×${r.height()} @ ${r.fps().toFixed(2)} fps\n` +
+      `pixel fmt:   ${r.pixelFormat()}\n` +
+      `matrix:      ${r.colorSpace()}   range: ${r.colorRange()}\n` +
+      `primaries:   ${r.colorPrimaries()}   transfer: ${r.colorTransfer()}\n` +
+      `tone mapping: ${r.toneMappingActive() ? "active (HDR → SDR)" : "off / not needed"}`;
+
+    canvas.width = r.width();
+    canvas.height = r.height();
+    canvas.hidden = false;
+    const ctx = canvas.getContext("2d");
+    const frameMs = r.fps() > 0 ? 1000 / r.fps() : 33;
+    let shown = 0;
+
+    const step = () => {
+      if (token !== playToken) { r.close(); r.delete(); return; }
+      const t0 = performance.now();
+      const rgba = r.readRGBA();
+      if (rgba === null) {
+        status.textContent = `done — ${shown} frames`;
+        r.close(); r.delete();
+        return;
+      }
+      ctx.putImageData(new ImageData(rgba, canvas.width, canvas.height), 0, 0);
+      shown++;
+      status.textContent = `frame ${shown}`;
+      const elapsed = performance.now() - t0;
+      setTimeout(step, Math.max(0, frameMs - elapsed));
+    };
+    step();
+  }
+</script>
+</body>
+</html>

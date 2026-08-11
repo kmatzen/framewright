@@ -1,5 +1,7 @@
 #pragma once
 
+#include "framewright/HDR10Metadata.h"
+
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
@@ -151,6 +153,18 @@ class VideoReader {
     /// True when the source is PQ/HLG and read() is tone mapping it to SDR.
     bool isToneMappingActive() const { return tone_map_active_; }
 
+    /// True once HDR10 static metadata (mastering display / content light
+    /// level) has been found in the source. Checked against the container's
+    /// side data at open(), and refreshed from the first decoded frame --
+    /// where the codec's SEI usually surfaces -- so it may turn true after
+    /// the first read.
+    bool hasHDR10Metadata() const { return has_hdr10_metadata_; }
+
+    /// The source's HDR10 static metadata (defaults if none was found).
+    /// When mastering metadata is present, its max luminance also drives the
+    /// tone-mapping peak instead of the 1000-nit assumption.
+    const HDR10Metadata& getHDR10Metadata() const { return hdr10_metadata_; }
+
   private:
     void cleanup();
     bool setupScaler();
@@ -169,6 +183,11 @@ class VideoReader {
     /// Build the 16-bit-code -> linear-light LUT for the source transfer,
     /// if not built yet. Shared by tone mapping and readLinear().
     void ensureLinearLut();
+    /// Parse HDR10 static metadata from the stream's coded side data.
+    void readStreamHDR10Metadata();
+    /// Refresh HDR10 metadata / dynamic-metadata warnings from the first
+    /// decoded frame's side data.
+    void inspectFirstFrameSideData();
 
     AVFormatContext* formatCtx_ = nullptr;
     AVCodecContext* codecCtx_ = nullptr;
@@ -191,6 +210,13 @@ class VideoReader {
     bool force_full_range_ = false;
     HdrMode hdr_mode_ = HdrMode::Passthrough;
     bool tone_map_active_ = false;
+
+    HDR10Metadata hdr10_metadata_;
+    bool has_hdr10_metadata_ = false;
+    bool first_frame_inspected_ = false;
+    /// Tone-mapping peak in SDR-reference-white units (10.0 == 1000 nits
+    /// default; overridden by mastering metadata when present).
+    float tone_map_peak_ = 10.0f;
 
     /// 16-bit code value -> linear light in SDR-reference-white units
     /// (1.0 == 100 nits). Built lazily for readLinear(), eagerly when tone

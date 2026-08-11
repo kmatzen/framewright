@@ -5,9 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-11
 
 ### Added
+- `VideoWriter`: `writeLinear()` accepts CV_32FC3 linear-light BGR (1.0 ==
+  SDR reference white) and encodes it — PQ in HDR10 mode, BT.709 OETF in SDR
+  mode; round-trips with `readLinear()`. Python: `write_linear()`
+- `VideoReader`: HDR10 static metadata is parsed from the source (container
+  side data at open, decoder SEI on the first frame) and exposed via
+  `hasHDR10Metadata()`/`getHDR10Metadata()`; the mastering max luminance now
+  drives the tone-mapping peak instead of a fixed 1000-nit assumption
+- `VideoReader`: warnings when Dolby Vision configuration or HDR10+ dynamic
+  metadata is present and ignored
+- WASM: `readRGBA()` returns canvas-ready RGBA; browser demo page
+  (`wasm/demo/index.html`) decodes and tone maps HDR video entirely
+  client-side
+- Release automation: pushing a `v*` tag builds the sdist and WASM module,
+  creates the GitHub release with artifacts, and publishes to PyPI
 - `VideoReader`: `readLinear()` returns CV_32FC3 linear-light BGR — PQ/HLG
   linearized per spec, SDR via the inverse BT.709 OETF, normalized so 1.0 ==
   SDR reference white; primaries left unconverted
@@ -31,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Tests: HDR fixtures with exactly-known code values; pixel-accuracy assertions
   for the BT.2020 matrix, PQ/HLG tone mapping, and the HDR write→read
   round-trip (#80)
+
+### Changed
+- `seek()` no longer runs BGR conversion (or tone mapping) on frames it scans
+  past — decode only, significantly faster over HDR content
+- Tone mapping, `readLinear()` and `writeLinear()` pixel loops are
+  parallelized with `cv::parallel_for_`
 
 ### Fixed
 - `VideoReader` warns at `open()` when a source uses a PQ/HLG transfer and

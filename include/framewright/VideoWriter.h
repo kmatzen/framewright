@@ -3,6 +3,8 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 
+#include "framewright/HDR10Metadata.h"
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -12,18 +14,6 @@ extern "C" {
 }
 
 namespace framewright {
-
-/// HDR10 static metadata for mastering display and content light level.
-struct HDR10Metadata {
-    double red_x = 0.708, red_y = 0.292;
-    double green_x = 0.170, green_y = 0.797;
-    double blue_x = 0.131, blue_y = 0.046;
-    double white_x = 0.3127, white_y = 0.3290;
-    double max_luminance = 1000.0;
-    double min_luminance = 0.0001;
-    unsigned int max_cll = 1000;
-    unsigned int max_fall = 400;
-};
 
 /// Options for VideoWriter::open().
 struct VideoWriterOptions {
@@ -77,7 +67,22 @@ class VideoWriter {
               bool full_range, bool use_444, bool lossless);
 
     /// Write a BGR frame (CV_8UC3 or CV_16UC3).
+    ///
+    /// @note Values are taken as already display-encoded for the writer's
+    /// mode: in HDR10 mode (is_10bit) they are treated as PQ code values, in
+    /// SDR mode as gamma-encoded. Use writeLinear() to write from linear
+    /// light instead.
     bool write(const cv::Mat& image);
+
+    /// Write a linear-light BGR frame (CV_32FC3), normalized so 1.0 == SDR
+    /// reference white (100 nits) -- the exact convention
+    /// VideoReader::readLinear() produces.
+    ///
+    /// In HDR10 mode the values are PQ-encoded (SMPTE ST 2084; 100.0 maps to
+    /// the 10000-nit peak); in SDR mode they are clamped to [0, 1] and
+    /// encoded with the BT.709 OETF. readLinear -> writeLinear -> readLinear
+    /// round-trips to within codec loss.
+    bool writeLinear(const cv::Mat& image);
 
     /// Flush buffered frames and finalize the file.
     void release();
