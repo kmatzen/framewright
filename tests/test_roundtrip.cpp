@@ -326,7 +326,8 @@ TEST_CASE("Round-trip: writeLinear -> readLinear on HDR is identity", "[roundtri
 
     cv::Vec3f px = back.at<cv::Vec3f>(H / 2, W / 2);
     for (int i = 0; i < 3; i++) {
-        CHECK_THAT(px[i], Catch::Matchers::WithinRel(original[i], 0.05));
+        // Explicit double: WithinRel(float, double) is ambiguous under Clang.
+        CHECK_THAT(px[i], Catch::Matchers::WithinRel(static_cast<double>(original[i]), 0.05));
     }
 
     remove_file(path);
