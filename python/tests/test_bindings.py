@@ -236,6 +236,51 @@ class TestHDR10Metadata:
 
 
 # --------------------------------------------------------------------------- #
+# HDR reading
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def hdr10_matrix(fixtures_dir):
+    p = os.path.join(fixtures_dir, "hdr10_matrix.mp4")
+    if not os.path.isfile(p):
+        pytest.skip("hdr10_matrix.mp4 fixture missing")
+    return p
+
+
+class TestHdrReading:
+    def test_read16_recovers_code_values(self, hdr10_matrix):
+        """read16 returns uint16 BGR with the BT.2020 matrix undone exactly."""
+        r = framewright.VideoReader()
+        assert r.open(hdr10_matrix)
+        frame = r.read16()
+        assert frame is not None
+        assert frame.dtype == np.uint16
+        assert frame.shape == (108, 192, 3)
+        center = frame[54, 96].astype(int)
+        # Fixture is solid RGB (208, 64, 32); BGR order, 8->16 bit scale 257.
+        assert abs(center[0] - 32 * 257) <= 3 * 257
+        assert abs(center[1] - 64 * 257) <= 3 * 257
+        assert abs(center[2] - 208 * 257) <= 3 * 257
+        r.close()
+
+    def test_tone_map_hdr_produces_uint8(self, hdr10_matrix):
+        r = framewright.VideoReader()
+        assert r.open(hdr10_matrix, tone_map_hdr=True)
+        assert r.tone_mapping_active
+        frame = r.read()
+        assert frame is not None
+        assert frame.dtype == np.uint8
+        r.close()
+
+    def test_tone_map_inactive_for_sdr(self, bt709_limited):
+        r = framewright.VideoReader()
+        assert r.open(bt709_limited, tone_map_hdr=True)
+        assert not r.tone_mapping_active
+        r.close()
+
+
+# --------------------------------------------------------------------------- #
 # LogLevel
 # --------------------------------------------------------------------------- #
 

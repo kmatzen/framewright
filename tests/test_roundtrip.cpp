@@ -4,6 +4,7 @@
 #include <framewright/VideoWriter.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 static const std::string fixtures = TEST_FIXTURES_DIR;
@@ -217,9 +218,18 @@ TEST_CASE("Round-trip: HEVC 10-bit HDR metadata", "[roundtrip][hdr]") {
         CHECK(reader.getColorPrimaries() == AVCOL_PRI_BT2020);
         CHECK(reader.getColorTransfer() == AVCOL_TRC_SMPTE2084);
 
+        // Pixel values, not just tags: writer and reader both apply only the
+        // BT.2020 matrix (no transfer), so a 16-bit write followed by read16()
+        // must return the original code values to within encoder loss. This
+        // would catch either side switching to a mismatched matrix or range.
         cv::Mat readFrame;
-        REQUIRE(reader.read(readFrame));
-        CHECK_FALSE(readFrame.empty());
+        REQUIRE(reader.read16(readFrame));
+        REQUIRE(readFrame.type() == CV_16UC3);
+        cv::Vec3w px = readFrame.at<cv::Vec3w>(readFrame.rows / 2, readFrame.cols / 2);
+        const int tol = 2000; // ~3% of full scale; solid color at 25 Mbps is far cleaner
+        CHECK(std::abs(px[0] - 30000) <= tol);
+        CHECK(std::abs(px[1] - 20000) <= tol);
+        CHECK(std::abs(px[2] - 10000) <= tol);
     }
 
     // Validate with ffprobe if available

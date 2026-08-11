@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `VideoReader`: opt-in HDR-to-SDR tone mapping (`HdrMode::ToneMapSDR`) — PQ and
+  HLG sources are linearized, tone mapped (extended Reinhard, 1000-nit assumed
+  peak), gamut mapped BT.2020 → BT.709 and encoded with BT.709 gamma (#76, #77)
+- `VideoReader`: `read16()` returns CV_16UC3 frames with the source's code
+  values preserved at full precision — the lossless input for custom HDR
+  pipelines, round-trips with `VideoWriter` HDR output (#78)
+- `VideoReader`: `VideoReaderOptions` overload of `open()` with `HdrMode`
+- `VideoReader`: `isToneMappingActive()` and `getHdrMode()` accessors
+- Python: `tone_map_hdr=` option on `VideoReader.open()`, `read16()`,
+  `tone_mapping_active` property
+- Tests: HDR fixtures with exactly-known code values; pixel-accuracy assertions
+  for the BT.2020 matrix, PQ/HLG tone mapping, and the HDR write→read
+  round-trip (#80)
+
+### Fixed
+- `VideoReader` warns at `open()` when a source uses a PQ/HLG transfer and
+  read() would deliver HDR-encoded (washed-out) pixels (#79)
+- BT.2020 constant-luminance and ICtCp sources no longer silently fall back to
+  BT.601 coefficients; the closest supported matrix is used and a warning
+  logged (#81)
+- `sws_setColorspaceDetails()` failures are no longer silently ignored in
+  either the reader or the writer (#81)
+
 ## [0.1.0] - 2026-04-11
 
 ### Added

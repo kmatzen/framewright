@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <framewright/VideoReader.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -412,5 +413,193 @@ TEST_CASE("VideoReader opens HDR10 file", "[reader][hdr]") {
     cv::Mat frame;
     REQUIRE(reader.read(frame));
     CHECK_FALSE(frame.empty());
+}
+#endif
+
+#ifdef HAVE_HDR_PIXEL_FIXTURES
+
+// Reference implementation of the HDR-to-SDR pipeline, written from the spec
+// formulas in double precision, independent of the float/LUT implementation
+// in VideoReader. The tests feed it the code values actually decoded by
+// read16() so it validates the transform math in isolation -- fixture
+// generation error cancels out.
+namespace hdr_reference {
+
+double pqEotf(double e) {
+    const double m1 = 2610.0 / 16384.0;
+    const double m2 = 2523.0 / 4096.0 * 128.0;
+    const double c1 = 3424.0 / 4096.0;
+    const double c2 = 2413.0 / 4096.0 * 32.0;
+    const double c3 = 2392.0 / 4096.0 * 32.0;
+    double p = std::pow(std::max(e, 0.0), 1.0 / m2);
+    double num = std::max(p - c1, 0.0);
+    double den = c2 - c3 * p;
+    if (den <= 0.0) return 10000.0;
+    return 10000.0 * std::pow(num / den, 1.0 / m1);
+}
+
+double hlgInverseOetf(double e) {
+    const double a = 0.17883277, b = 0.28466892, c = 0.55991073;
+    e = std::max(e, 0.0);
+    if (e <= 0.5) return e * e / 3.0;
+    return (std::exp((e - c) / a) + b) / 12.0;
+}
+
+// 16-bit BGR code values -> expected tone-mapped 8-bit BGR.
+cv::Vec3b toneMap(const cv::Vec3w& bgr16, bool hlg) {
+    double lin[3]; // b, g, r
+    for (int i = 0; i < 3; i++) {
+        double e = bgr16[i] / 65535.0;
+        lin[i] = hlg ? 10.0 * std::pow(hlgInverseOetf(e), 1.2) : pqEotf(e) / 100.0;
+    }
+    double b = lin[0], g = lin[1], r = lin[2];
+    double lum = 0.2627 * r + 0.6780 * g + 0.0593 * b;
+    if (lum > 0.0) {
+        const double peak = 10.0;
+        double mapped = lum * (1.0 + lum / (peak * peak)) / (1.0 + lum);
+        double s = mapped / lum;
+        r *= s; g *= s; b *= s;
+    }
+    double r709 =  1.6605 * r - 0.5876 * g - 0.0728 * b;
+    double g709 = -0.1246 * r + 1.1329 * g - 0.0083 * b;
+    double b709 = -0.0182 * r - 0.1006 * g + 1.1187 * b;
+    auto enc = [](double x) -> uint8_t {
+        x = std::min(std::max(x, 0.0), 1.0);
+        double e = x < 0.018 ? 4.5 * x : 1.099 * std::pow(x, 0.45) - 0.099;
+        return static_cast<uint8_t>(std::lround(std::min(std::max(e, 0.0), 1.0) * 255.0));
+    };
+    return {enc(b709), enc(g709), enc(r709)};
+}
+
+} // namespace hdr_reference
+
+// The matrix fixture is solid RGB (208, 64, 32) encoded to BT.2020 YUV by an
+// independent converter. If the reader applied BT.709 or BT.601 coefficients
+// instead of BT.2020, the decode would land ~7 counts off on R and G, well
+// outside the +/-3 tolerance.
+TEST_CASE("VideoReader read16 recovers HDR10 code values through the BT.2020 matrix",
+          "[reader][hdr][color]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/hdr10_matrix.mp4"));
+    REQUIRE(reader.getColorSpace() == AVCOL_SPC_BT2020_NCL);
+
+    cv::Mat frame;
+    REQUIRE(reader.read16(frame));
+    REQUIRE(frame.type() == CV_16UC3);
+    REQUIRE(frame.cols == 192);
+    REQUIRE(frame.rows == 108);
+
+    cv::Vec3w px = frame.at<cv::Vec3w>(frame.rows / 2, frame.cols / 2);
+    const int tol16 = 3 * 257;
+    CHECK(std::abs(px[0] - 32 * 257) <= tol16);  // B
+    CHECK(std::abs(px[1] - 64 * 257) <= tol16);  // G
+    CHECK(std::abs(px[2] - 208 * 257) <= tol16); // R
+}
+
+TEST_CASE("VideoReader 8-bit passthrough uses the BT.2020 matrix for HDR10",
+          "[reader][hdr][color]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/hdr10_matrix.mp4"));
+    CHECK_FALSE(reader.isToneMappingActive());
+
+    cv::Mat frame;
+    REQUIRE(reader.read(frame));
+    REQUIRE(frame.type() == CV_8UC3);
+
+    cv::Vec3b px = frame.at<cv::Vec3b>(frame.rows / 2, frame.cols / 2);
+    CHECK(std::abs(px[0] - 32) <= 3);
+    CHECK(std::abs(px[1] - 64) <= 3);
+    CHECK(std::abs(px[2] - 208) <= 3);
+}
+
+static void checkToneMappedAgainstReference(const std::string& file, bool hlg) {
+    // First pass: raw code values.
+    cv::Vec3w code16;
+    {
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(file));
+        cv::Mat raw;
+        REQUIRE(reader.read16(raw));
+        code16 = raw.at<cv::Vec3w>(raw.rows / 2, raw.cols / 2);
+    }
+
+    // The fixture encodes RGB (140, 150, 110); the raw values must be intact
+    // (this also pins the fixture itself, so the reference below is fed real
+    // HDR code values rather than garbage).
+    CHECK(std::abs(code16[0] - 110 * 257) <= 3 * 257);
+    CHECK(std::abs(code16[1] - 150 * 257) <= 3 * 257);
+    CHECK(std::abs(code16[2] - 140 * 257) <= 3 * 257);
+
+    // Second pass: tone-mapped read must match the independent double-precision
+    // reference applied to the very code values decoded above.
+    framewright::VideoReaderOptions opts;
+    opts.hdr_mode = framewright::HdrMode::ToneMapSDR;
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(file, opts));
+    CHECK(reader.isToneMappingActive());
+
+    cv::Mat frame;
+    REQUIRE(reader.read(frame));
+    REQUIRE(frame.type() == CV_8UC3);
+    cv::Vec3b actual = frame.at<cv::Vec3b>(frame.rows / 2, frame.cols / 2);
+
+    cv::Vec3b expected = hdr_reference::toneMap(code16, hlg);
+
+    // Chosen so the expected output sits well inside (0, 255) on every
+    // channel; a pipeline that skipped linearization, tone mapping, the gamut
+    // matrix, or the output gamma lands far outside +/-3.
+    for (int i = 0; i < 3; i++) {
+        CHECK(static_cast<int>(expected[i]) > 20);
+        CHECK(static_cast<int>(expected[i]) < 235);
+        CHECK(std::abs(static_cast<int>(actual[i]) - static_cast<int>(expected[i])) <= 3);
+    }
+}
+
+TEST_CASE("VideoReader tone maps PQ to SDR matching the reference math",
+          "[reader][hdr][color]") {
+    checkToneMappedAgainstReference(fixtures + "/hdr10_tonemap.mp4", /*hlg=*/false);
+}
+
+TEST_CASE("VideoReader tone maps HLG to SDR matching the reference math",
+          "[reader][hdr][color]") {
+    checkToneMappedAgainstReference(fixtures + "/hlg_tonemap.mp4", /*hlg=*/true);
+}
+
+TEST_CASE("VideoReader ToneMapSDR leaves SDR sources untouched", "[reader][hdr]") {
+    cv::Mat plain, mapped;
+    {
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+        REQUIRE(reader.read(plain));
+    }
+    {
+        framewright::VideoReaderOptions opts;
+        opts.hdr_mode = framewright::HdrMode::ToneMapSDR;
+        framewright::VideoReader reader;
+        REQUIRE(reader.open(fixtures + "/bt709_limited.mp4", opts));
+        CHECK_FALSE(reader.isToneMappingActive());
+        REQUIRE(reader.read(mapped));
+    }
+    CHECK(cv::norm(plain, mapped, cv::NORM_INF) == 0.0);
+}
+
+TEST_CASE("VideoReader read16 works on 8-bit SDR sources", "[reader][hdr]") {
+    framewright::VideoReader reader;
+    REQUIRE(reader.open(fixtures + "/bt709_limited.mp4"));
+
+    cv::Mat frame16, frame8;
+    REQUIRE(reader.read16(frame16));
+    REQUIRE(frame16.type() == CV_16UC3);
+
+    // read() and read16() must agree on the same content to within scaling.
+    framewright::VideoReader reader8;
+    REQUIRE(reader8.open(fixtures + "/bt709_limited.mp4"));
+    REQUIRE(reader8.read(frame8));
+
+    cv::Vec3w p16 = frame16.at<cv::Vec3w>(frame16.rows / 2, frame16.cols / 2);
+    cv::Vec3b p8 = frame8.at<cv::Vec3b>(frame8.rows / 2, frame8.cols / 2);
+    for (int i = 0; i < 3; i++) {
+        CHECK(std::abs(p16[i] / 257 - p8[i]) <= 2);
+    }
 }
 #endif

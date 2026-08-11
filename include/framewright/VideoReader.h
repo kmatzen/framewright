@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <string>
+#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -11,6 +12,25 @@ extern "C" {
 }
 
 namespace framewright {
+
+/// How read() converts HDR (PQ/HLG) sources to 8-bit BGR.
+enum class HdrMode {
+    /// Matrix-only conversion (historical behavior). For PQ/HLG sources the
+    /// decoded pixel values remain HDR-encoded and will look washed out when
+    /// treated as sRGB/BT.709 downstream. A warning is logged at open().
+    Passthrough,
+    /// Linearize PQ/HLG, tone map to SDR (BT.2390-style extended Reinhard,
+    /// 1000-nit nominal peak), convert BT.2020 primaries to BT.709 and encode
+    /// with BT.709 gamma. SDR sources are unaffected by this mode.
+    ToneMapSDR,
+};
+
+/// Options for VideoReader::open().
+struct VideoReaderOptions {
+    bool force_bt709 = false;      ///< Force BT.709 color matrix regardless of metadata.
+    bool force_full_range = false; ///< Treat input as full range (0-255).
+    HdrMode hdr_mode = HdrMode::Passthrough; ///< How to handle PQ/HLG sources in read().
+};
 
 /// Drop-in replacement for cv::VideoCapture with correct color space handling.
 ///
@@ -24,6 +44,14 @@ namespace framewright {
 /// you no way to override it. This class uses FFmpeg directly and lets you
 /// force BT.709, BT.601, or full-range conversion so the pixel values you
 /// read are actually correct.
+///
+/// HDR sources (BT.2020 + PQ/HLG): the correct color matrix is always used,
+/// and two dedicated paths exist beyond that. read16() returns the untouched
+/// (still PQ/HLG-encoded) code values at 16-bit precision for callers doing
+/// their own mapping, and opening with HdrMode::ToneMapSDR makes read()
+/// return display-ready SDR BT.709 frames. Only codec-level color metadata is
+/// honored; frame-level dynamic metadata (HDR10+, Dolby Vision RPUs) is
+/// ignored.
 class VideoReader {
   public:
     VideoReader();
@@ -44,6 +72,9 @@ class VideoReader {
     bool open(const std::string& filename, bool force_bt709 = false,
               bool force_full_range = false);
 
+    /// Open a video file with full options, including HDR handling.
+    bool open(const std::string& filename, const VideoReaderOptions& options);
+
     /// Read the next frame as a BGR cv::Mat (same convention as OpenCV).
     /// The frame is a deep copy and stays valid for as long as you hold it.
     bool read(cv::Mat& frame);
@@ -52,10 +83,21 @@ class VideoReader {
     ///
     /// @warning The returned cv::Mat is a *view* onto an internal buffer that
     /// the reader overwrites in place. It is invalidated by the next call to
-    /// read(), readRef(), seek() or close(), and by destroying the reader.
-    /// Clone it yourself if you need to keep it. Use read() unless the copy
-    /// is measurably hurting you -- it avoids this hazard entirely.
+    /// read(), readRef(), read16(), seek() or close(), and by destroying the
+    /// reader. Clone it yourself if you need to keep it. Use read() unless
+    /// the copy is measurably hurting you -- it avoids this hazard entirely.
     bool readRef(cv::Mat& frame);
+
+    /// Read the next frame as 16-bit BGR (CV_16UC3), preserving the source's
+    /// code values at full precision.
+    ///
+    /// Only the color matrix and range are applied -- the transfer function is
+    /// NOT: for PQ/HLG sources the returned values are still PQ/HLG-encoded
+    /// (10-bit code values scaled to 16-bit). Combined with
+    /// getColorTransfer()/getColorPrimaries() this is the lossless input for
+    /// doing your own tone mapping, and it round-trips with
+    /// VideoWriter::write(CV_16UC3) in HDR mode. The frame is a deep copy.
+    bool read16(cv::Mat& frame);
 
     /// Seek to a specific frame number (forward and backward, best effort).
     bool seek(int64_t frame_number);
@@ -90,18 +132,38 @@ class VideoReader {
     bool isForcingBT709() const { return force_bt709_; }
     bool isForcingFullRange() const { return force_full_range_; }
 
+    /// The HDR mode this reader was opened with.
+    HdrMode getHdrMode() const { return hdr_mode_; }
+
+    /// True when the source is PQ/HLG and read() is tone mapping it to SDR.
+    bool isToneMappingActive() const { return tone_map_active_; }
+
   private:
     void cleanup();
     bool setupScaler();
-    /// Decodes the next frame into frameBGR_ and advances the counters.
+    /// Apply matrix/range configuration shared by the 8- and 16-bit scalers.
+    void configureScalerColorspace(SwsContext* ctx);
+    /// Lazily create the 16-bit (BGR48) scaler and frame buffer.
+    bool ensure16BitScaler();
+    /// Decodes the next frame into frame_ and advances the position counters.
     bool decodeNextFrame();
+    /// Convert the decoded frame_ into frameBGR_ (8-bit, tone-map aware).
+    bool convertToBGR8();
+    /// Convert the decoded frame_ into frameBGR16_ (16-bit code values).
+    bool convertToBGR16();
+    /// Tone map frameBGR16_ (linear-light via LUT) into frameBGR_.
+    void toneMapFrame();
+    /// Build the 16-bit-code -> linear-light LUT for the source transfer.
+    void buildToneMapLut();
 
     AVFormatContext* formatCtx_ = nullptr;
     AVCodecContext* codecCtx_ = nullptr;
     AVFrame* frame_ = nullptr;
     AVFrame* frameBGR_ = nullptr;
+    AVFrame* frameBGR16_ = nullptr;
     AVPacket* packet_ = nullptr;
     SwsContext* swsCtx_ = nullptr;
+    SwsContext* swsCtx16_ = nullptr;
 
     int videoStreamIndex_ = -1;
     int width_ = 0;
@@ -113,6 +175,12 @@ class VideoReader {
 
     bool force_bt709_ = false;
     bool force_full_range_ = false;
+    HdrMode hdr_mode_ = HdrMode::Passthrough;
+    bool tone_map_active_ = false;
+
+    /// 16-bit code value -> linear light in SDR-reference-white units
+    /// (1.0 == 100 nits). Populated only when tone mapping is active.
+    std::vector<float> toneMapLut_;
 };
 
 } // namespace framewright
