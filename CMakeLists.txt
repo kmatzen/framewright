@@ -27,19 +27,66 @@ if(OpenCV_VERSION VERSION_LESS 4.0)
 endif()
 
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED
-    libavformat>=58.29   # FFmpeg 4.2+
-    libavcodec>=58.54
-    libswscale>=5.5
-    libavutil>=56.31
-)
+
+# pkg-config is the primary lookup (works for system FFmpeg on Linux/macOS,
+# and for vcpkg-provided FFmpeg on Windows, which installs pkgconf as a host
+# tool alongside the .pc files). It is NOT required, though: Windows has no
+# system pkg-config, and common non-vcpkg Windows FFmpeg distributions (e.g.
+# manual BtbN/gyan.dev dev builds) ship plain include/ and lib/ directories
+# with no .pc files either. See #93.
+find_package(PkgConfig)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(FFMPEG QUIET
+        libavformat>=58.29   # FFmpeg 4.2+
+        libavcodec>=58.54
+        libswscale>=5.5
+        libavutil>=56.31
+    )
+endif()
+
+set(_fw_ffmpeg_via_pkgconfig ${FFMPEG_FOUND})
+
+if(NOT FFMPEG_FOUND)
+    message(STATUS "FFmpeg not found via pkg-config; trying find_library")
+
+    find_path(FFMPEG_INCLUDE_DIRS NAMES libavformat/avformat.h)
+    find_library(_fw_avformat_lib NAMES avformat)
+    find_library(_fw_avcodec_lib NAMES avcodec)
+    find_library(_fw_avutil_lib NAMES avutil)
+    find_library(_fw_swscale_lib NAMES swscale)
+
+    if(FFMPEG_INCLUDE_DIRS AND _fw_avformat_lib AND _fw_avcodec_lib
+       AND _fw_avutil_lib AND _fw_swscale_lib)
+        set(FFMPEG_FOUND TRUE)
+        set(FFMPEG_LIBRARIES
+            ${_fw_avformat_lib} ${_fw_avcodec_lib} ${_fw_avutil_lib} ${_fw_swscale_lib})
+        set(FFMPEG_LIBRARY_DIRS "")
+        set(FFMPEG_LDFLAGS_OTHER "")
+    endif()
+endif()
+
+if(NOT FFMPEG_FOUND)
+    message(FATAL_ERROR
+        "Could not find FFmpeg (libavformat/libavcodec/libavutil/libswscale, "
+        "FFmpeg 4.2+). Install the development files, or point "
+        "CMAKE_PREFIX_PATH / CMAKE_TOOLCHAIN_FILE at a prefix that has them "
+        "(e.g. a vcpkg toolchain file on Windows -- see vcpkg.json).")
+endif()
 
 # Link FFmpeg's static archives (pkg-config --static info) instead of shared
 # libraries. Used by the wheel builds, where a self-contained extension module
-# is wanted and the dependency prefix only installs .a files.
+# is wanted and the dependency prefix only installs .a files. Requires the
+# pkg-config lookup above to have succeeded -- the find_library fallback has
+# no equivalent of --static link information.
 option(FRAMEWRIGHT_STATIC_DEPS
        "Link FFmpeg statically using pkg-config --static link information" OFF)
+
+if(FRAMEWRIGHT_STATIC_DEPS AND NOT _fw_ffmpeg_via_pkgconfig)
+    message(FATAL_ERROR
+        "FRAMEWRIGHT_STATIC_DEPS requires FFmpeg to have been found via "
+        "pkg-config (for its --static link information); the find_library "
+        "fallback was used instead.")
+endif()
 
 if(FRAMEWRIGHT_STATIC_DEPS)
     set(_ffmpeg_library_dirs ${FFMPEG_STATIC_LIBRARY_DIRS})
