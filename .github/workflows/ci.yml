@@ -15,7 +15,6 @@ jobs:
     runs-on: windows-latest
     name: Windows (MSVC)
     env:
-      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
       # x-gha is vcpkg's native GitHub Actions cache binary source: without
       # it, every run rebuilds FFmpeg + x264/x265 + OpenCV from source, each
       # comfortably over an hour.
@@ -38,6 +37,15 @@ jobs:
       - name: Set up MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
 
+      # vcvarsall.bat (run above) sets its own VCPKG_ROOT pointing at this VS
+      # install's bundled vcpkg copy and the action exports that to every
+      # later step, silently overriding whatever the job set. Point it back
+      # at the checkout this job manages below -- must run after the MSVC
+      # step, not in job-level env:, or it gets clobbered right back.
+      - name: Point VCPKG_ROOT at our own checkout
+        run: |
+          "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $env:GITHUB_ENV
+
       - name: Install Ninja and ffmpeg CLI (fixture generation)
         run: |
           choco install ninja --no-progress -y
@@ -53,11 +61,20 @@ jobs:
 
       - name: Locate pybind11 CMake dir
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $pb11 = python -c "import pybind11; print(pybind11.get_cmake_dir())"
           "PYBIND11_CMAKE_DIR=$pb11" >> $env:GITHUB_ENV
 
+      # $PSNativeCommandUseErrorActionPreference makes a failing native
+      # command (nonzero exit) a terminating error like $ErrorActionPreference
+      # already is for cmdlets, so a first-line failure stops the script
+      # instead of running the next line against broken state and surfacing
+      # a confusing, unrelated-looking error there instead.
       - name: Bootstrap vcpkg
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
 
@@ -66,6 +83,8 @@ jobs:
       # very different logs instead of one interleaved one.
       - name: Install dependencies via vcpkg
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows
 
       - name: Configure
