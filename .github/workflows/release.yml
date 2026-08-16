@@ -49,6 +49,8 @@ jobs:
             name: linux
           - os: macos-latest
             name: macos
+          - os: windows-latest
+            name: windows
     runs-on: ${{ matrix.os }}
     name: Build wheels (${{ matrix.name }})
     steps:

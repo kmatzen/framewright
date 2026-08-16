@@ -391,10 +391,12 @@ if(FRAMEWRIGHT_BUILD_PYTHON)
 
     pybind11_add_module(_framewright python/bindings.cpp)
     target_link_libraries(_framewright PRIVATE framewright)
-    if(FRAMEWRIGHT_STATIC_DEPS AND NOT APPLE)
+    if(FRAMEWRIGHT_STATIC_DEPS AND UNIX AND NOT APPLE)
         # Static FFmpeg's x86 assembly uses PC-relative relocations to its own
         # global data (e.g. ff_pw_5), which the linker rejects in a shared
-        # object unless those symbols are bound locally.
+        # object unless those symbols are bound locally. ELF/GNU-ld specific --
+        # not valid for MSVC's link.exe, which is why this is scoped to Linux
+        # rather than "NOT APPLE" (which is also true on Windows).
         target_link_options(_framewright PRIVATE "LINKER:-Bsymbolic")
     endif()
     install(TARGETS _framewright DESTINATION .)

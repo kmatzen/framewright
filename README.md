@@ -202,13 +202,13 @@ make -j$(nproc)
 pip install framewright
 ```
 
-Binary wheels (Linux x86_64, macOS arm64, CPython 3.9–3.13) bundle a
-statically linked, **LGPL** FFmpeg and OpenCV core — no system dependencies
-needed. One consequence of the LGPL build: the wheels contain no x264/x265,
-so **H.264/HEVC *writing* is unavailable in wheel installs** (`open()`
-returns false with "codec not found"); reading — including all HDR paths —
-and FFV1 lossless writing are fully functional. For H.264/HEVC writing,
-install from source against a system FFmpeg that includes them:
+Binary wheels (Linux x86_64, macOS arm64, Windows AMD64, CPython 3.9–3.13)
+bundle a statically linked, **LGPL** FFmpeg and OpenCV core — no system
+dependencies needed. One consequence of the LGPL build: the wheels contain
+no x264/x265, so **H.264/HEVC *writing* is unavailable in wheel installs**
+(`open()` returns false with "codec not found"); reading — including all
+HDR paths — and FFV1 lossless writing are fully functional. For H.264/HEVC
+writing, install from source against a system FFmpeg that includes them:
 
 ```bash
 pip install framewright --no-binary framewright   # needs OpenCV + FFmpeg dev packages
@@ -241,8 +241,9 @@ cmake --build build
 
 Windows support is a recent addition (#93) and covered by CI, but is newer
 than the Linux/macOS builds -- report anything that looks platform-specific.
-No binary wheels ship for Windows yet; Python requires a source build with
-the above toolchain.
+Binary wheels are available (`pip install framewright` also works on
+Windows) — they're built the same LGPL-only, statically-linked way as the
+Linux/macOS wheels, so the same H.264/HEVC-writing caveat above applies.
 
 ## Logging
 
