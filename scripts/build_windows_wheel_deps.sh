@@ -35,10 +35,15 @@ fi
 INSTALLED="$VCPKG_ROOT/installed/$TRIPLET"
 if [ ! -f "$INSTALLED/lib/avcodec.lib" ]; then
     echo "== Installing LGPL-only FFmpeg + OpenCV core ($TRIPLET)"
-    # "core" is vcpkg's classic-mode CLI syntax for "no default features"
-    # (the manifest-mode equivalent is "default-features": false -- listing
-    # "core" inside a manifest's "features" array is rejected, see #93).
-    "$VCPKG_ROOT/vcpkg.exe" install \
+    # --classic: vcpkg.exe runs with cwd == the repo root (cibuildwheel's
+    # package_dir), which contains our own vcpkg.json -- vcpkg auto-detects
+    # that as a manifest and then refuses positional package arguments
+    # ("does not support individual package arguments") unless classic mode
+    # is forced. "core" is vcpkg's classic-mode CLI syntax for "no default
+    # features" (the manifest-mode equivalent is "default-features": false
+    # -- listing "core" inside a manifest's "features" array is rejected,
+    # see #93).
+    "$VCPKG_ROOT/vcpkg.exe" install --classic \
         "opencv4[core]:$TRIPLET" \
         "ffmpeg[core,avcodec,avformat,swscale]:$TRIPLET"
 fi
