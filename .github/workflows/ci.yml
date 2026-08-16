@@ -89,8 +89,16 @@ jobs:
       # one; it is a real (if first-time slow) build either way, but at
       # least it happens once, and the x-gha binary cache makes every run
       # after the first fast once it's warm.
+      # Examples off: compare_readers.cpp uses cv::imwrite/cv::VideoCapture
+      # (imgcodecs/videoio), which are not part of the trimmed opencv4[core]
+      # vcpkg feature set below (opencv4's *default* Windows feature set
+      # additionally pulls in dnn/gapi/highgui/directml/dshow/msmf/win32ui --
+      # protobuf alone, needed only for dnn, took 18 minutes to build. None
+      # of it is needed to validate the library + test suite under MSVC,
+      # which is this job's actual job; examples can gain the extra
+      # opencv4 features back if this job's scope grows to cover them.
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DFRAMEWRIGHT_BUILD_TESTS=ON -DFRAMEWRIGHT_BUILD_EXAMPLES=ON -DFRAMEWRIGHT_BUILD_PYTHON=ON -Dpybind11_DIR="$env:PYBIND11_CMAKE_DIR"
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DFRAMEWRIGHT_BUILD_TESTS=ON -DFRAMEWRIGHT_BUILD_EXAMPLES=OFF -DFRAMEWRIGHT_BUILD_PYTHON=ON -Dpybind11_DIR="$env:PYBIND11_CMAKE_DIR"
 
       - name: Build
         run: cmake --build build
