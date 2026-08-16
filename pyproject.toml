@@ -65,4 +65,4 @@ environment = { PKG_CONFIG_PATH = "/tmp/fw-deps/lib/pkgconfig", CMAKE_PREFIX_PAT
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
 before-all = "bash {project}/scripts/build_windows_wheel_deps.sh C:/vcpkg-wheel"
-environment = { PKG_CONFIG_PATH = "C:/vcpkg-wheel/installed/x64-windows-static-md/lib/pkgconfig", CMAKE_ARGS = "-DFRAMEWRIGHT_STATIC_DEPS=ON -DCMAKE_PREFIX_PATH=C:/vcpkg-wheel/installed/x64-windows-static-md -DPKG_CONFIG_EXECUTABLE=C:/vcpkg-wheel/installed/x64-windows/tools/pkgconf/pkgconf.exe" }
+environment = { PKG_CONFIG_PATH = "C:/vcpkg-wheel/installed/x64-windows-static-md/lib/pkgconfig", CMAKE_PREFIX_PATH = "C:/vcpkg-wheel/installed/x64-windows-static-md", CMAKE_ARGS = "-DFRAMEWRIGHT_STATIC_DEPS=ON -DPKG_CONFIG_EXECUTABLE=C:/vcpkg-wheel/installed/x64-windows/tools/pkgconf/pkgconf.exe" }
