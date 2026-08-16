@@ -6,8 +6,7 @@
   "dependencies": [
     {
       "name": "opencv4",
-      "default-features": false,
-      "features": ["core"]
+      "default-features": false
     },
     "pybind11",
     {
