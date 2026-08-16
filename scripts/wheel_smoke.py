@@ -41,11 +41,13 @@ with tempfile.TemporaryDirectory() as tmp:
     back = r.read()
     check("read returns frame", back is not None)
     check("FFV1 round-trip exact", back is not None and bool((back[24, 32] == (42, 84, 168)).all()))
+    r.close()
 
     lin = None
     r2 = framewright.VideoReader()
     if r2.open(path):
         lin = r2.read_linear()
+    r2.close()
     check("read_linear works", lin is not None and lin.dtype == np.float32)
 
     # Wheels ship LGPL FFmpeg: H.264/HEVC writing must fail cleanly (use a

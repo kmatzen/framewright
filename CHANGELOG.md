@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Binary wheels for Linux (x86_64) and macOS (arm64), CPython 3.9–3.13, with
-  statically linked LGPL FFmpeg and OpenCV core — `pip install framewright`
-  needs no system dependencies. The LGPL build ships no x264/x265, so
-  H.264/HEVC writing requires a source install; reading and FFV1 writing are
-  fully functional (#92)
+- Binary wheels for Linux (x86_64), macOS (arm64), and Windows (AMD64),
+  CPython 3.9–3.13, with statically linked LGPL FFmpeg and OpenCV core —
+  `pip install framewright` needs no system dependencies. The LGPL build
+  ships no x264/x265, so H.264/HEVC writing requires a source install;
+  reading and FFV1 writing are fully functional (#92, Windows wheels #96)
 - Windows support: FFmpeg dependency lookup falls back to plain
   `find_library` when pkg-config is unavailable or has no .pc files; a
   `vcpkg.json` manifest for one-command dependency install; a Windows/MSVC
