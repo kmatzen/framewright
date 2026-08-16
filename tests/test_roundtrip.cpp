@@ -3,6 +3,8 @@
 #include <framewright/VideoReader.h>
 #include <framewright/VideoWriter.h>
 
+#include "portable_popen.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <string>

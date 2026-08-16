@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <framewright/VideoWriter.h>
 
+#include "portable_popen.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <string>

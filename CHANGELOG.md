@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   needs no system dependencies. The LGPL build ships no x264/x265, so
   H.264/HEVC writing requires a source install; reading and FFV1 writing are
   fully functional (#92)
+- Windows support: FFmpeg dependency lookup falls back to plain
+  `find_library` when pkg-config is unavailable or has no .pc files; a
+  `vcpkg.json` manifest for one-command dependency install; a Windows/MSVC
+  CI job building with Ninja and running the full C++/Python test suite (#93)
 
 ## [0.2.0] - 2026-08-11
 
