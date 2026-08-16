@@ -112,6 +112,37 @@ jobs:
           $env:TEST_FIXTURES_DIR = "$PWD\build\test_fixtures"
           pytest python/tests/ -v
 
+  # Validates the Windows wheel build path (#96) on every PR, rather than
+  # only discovering breakage when release.yml is actually dispatched --
+  # that's what happened with the Linux/macOS wheels (#92/#94), and this
+  # build has more moving parts (throwaway vcpkg install, static-md
+  # triplet) with no local way to test them. CIBW_BUILD narrows to a single
+  # interpreter since this only needs to prove the build path works; the
+  # full cp39-cp313 matrix is still exercised at release time.
+  windows-wheel:
+    runs-on: windows-latest
+    name: Windows wheel (smoke)
+    env:
+      CIBW_BUILD: "cp312-*"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build wheel
+        run: |
+          pip install cibuildwheel
+          python -m cibuildwheel --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-wheel-smoke
+          path: wheelhouse/*.whl
+
   build-and-test:
     strategy:
       fail-fast: false
