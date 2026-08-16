@@ -1,0 +1,18 @@
+{
+  "name": "framewright",
+  "version-string": "0.2.0",
+  "description": "Color-correct video I/O -- drop-in replacement for OpenCV VideoCapture/VideoWriter",
+  "homepage": "https://github.com/kmatzen/framewright",
+  "dependencies": [
+    {
+      "name": "opencv4",
+      "default-features": false
+    },
+    "pybind11",
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": ["avcodec", "avformat", "swscale", "gpl", "x264", "x265"]
+    }
+  ]
+}

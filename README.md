@@ -220,6 +220,30 @@ pip install framewright --no-binary framewright   # needs OpenCV + FFmpeg dev pa
 - OpenCV 4.0+
 - FFmpeg 4.2+ (libavformat, libavcodec, libswscale, libavutil)
 
+### Windows
+
+Dependency lookup no longer hard-requires pkg-config (Windows has none by
+default): CMake tries pkg-config first, then falls back to a plain
+`find_library` search. The easiest way to get both dependencies is
+[vcpkg](https://vcpkg.io) in manifest mode, using the `vcpkg.json` in this
+repo:
+
+```powershell
+git clone https://github.com/microsoft/vcpkg
+.\vcpkg\bootstrap-vcpkg.bat
+
+cmake -B build -G Ninja `
+    -DCMAKE_TOOLCHAIN_FILE=.\vcpkg\scripts\buildsystems\vcpkg.cmake `
+    -DVCPKG_TARGET_TRIPLET=x64-windows `
+    -DFRAMEWRIGHT_BUILD_TESTS=ON
+cmake --build build
+```
+
+Windows support is a recent addition (#93) and covered by CI, but is newer
+than the Linux/macOS builds -- report anything that looks platform-specific.
+No binary wheels ship for Windows yet; Python requires a source build with
+the above toolchain.
+
 ## Logging
 
 By default, framewright only logs errors. To see informational output:
