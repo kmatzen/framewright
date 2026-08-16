@@ -55,3 +55,14 @@ environment = { PKG_CONFIG_PATH = "/opt/fw-deps/lib/pkgconfig:/opt/fw-deps/lib64
 archs = ["arm64"]
 before-all = "bash {project}/scripts/build_wheel_deps.sh /tmp/fw-deps"
 environment = { PKG_CONFIG_PATH = "/tmp/fw-deps/lib/pkgconfig", CMAKE_PREFIX_PATH = "/tmp/fw-deps", CMAKE_ARGS = "-DFRAMEWRIGHT_STATIC_DEPS=ON", MACOSX_DEPLOYMENT_TARGET = "13.0" }
+
+# Windows dependencies come from a throwaway vcpkg classic-mode install
+# (scripts/build_windows_wheel_deps.sh), not the repo's vcpkg.json manifest
+# used by CI (#93) -- that manifest enables gpl+x264+x265 for test coverage
+# and uses the dynamic x64-windows triplet, both wrong for an LGPL-only,
+# self-contained wheel. x64-windows-static-md links FFmpeg/OpenCV statically
+# while keeping the dynamic CRT, matching CPython's own CRT linkage.
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
+before-all = "bash {project}/scripts/build_windows_wheel_deps.sh C:/vcpkg-wheel"
+environment = { PKG_CONFIG_PATH = "C:/vcpkg-wheel/installed/x64-windows-static-md/lib/pkgconfig", CMAKE_PREFIX_PATH = "C:/vcpkg-wheel/installed/x64-windows-static-md", CMAKE_ARGS = "-DFRAMEWRIGHT_STATIC_DEPS=ON -DPKG_CONFIG_EXECUTABLE=C:/vcpkg-wheel/installed/x64-windows/tools/pkgconf/pkgconf.exe" }
