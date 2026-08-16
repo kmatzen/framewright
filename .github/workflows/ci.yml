@@ -78,15 +78,17 @@ jobs:
           git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
 
-      # Separate from Configure below purely for clearer failure triage: a
-      # dependency build failure and a framewright configure failure land in
-      # very different logs instead of one interleaved one.
-      - name: Install dependencies via vcpkg
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows
-
+      # No separate "vcpkg install" step: a bare `vcpkg.exe install` run from
+      # the repo root installs manifest dependencies into
+      # <repo-root>/vcpkg_installed/, but CMake's own vcpkg toolchain
+      # integration (triggered below, during Configure) installs into
+      # <build-dir>/vcpkg_installed/ instead -- a different directory. The
+      # first attempt at this job had both steps, so every run built FFmpeg
+      # + x264 + x265 + OpenCV from source *twice*, once into a location
+      # nothing else used. Let Configure's manifest-mode install be the only
+      # one; it is a real (if first-time slow) build either way, but at
+      # least it happens once, and the x-gha binary cache makes every run
+      # after the first fast once it's warm.
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DFRAMEWRIGHT_BUILD_TESTS=ON -DFRAMEWRIGHT_BUILD_EXAMPLES=ON -DFRAMEWRIGHT_BUILD_PYTHON=ON -Dpybind11_DIR="$env:PYBIND11_CMAKE_DIR"
 
