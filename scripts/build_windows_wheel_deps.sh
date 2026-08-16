@@ -48,16 +48,18 @@ if [ ! -f "$INSTALLED/lib/avcodec.lib" ]; then
         "ffmpeg[core,avcodec,avformat,swscale]:$TRIPLET"
 fi
 
-# pkgconf is installed as a host tool (under the host triplet, not the
-# target triplet) -- copy it to a fixed, predictable path so pyproject.toml
-# can point PKG_CONFIG_EXECUTABLE at it without knowing the host triplet.
-if [ ! -f "$VCPKG_ROOT/pkgconf.exe" ]; then
-    PKGCONF="$(find "$VCPKG_ROOT/installed" -name 'pkgconf.exe' -print -quit)"
-    if [ -z "$PKGCONF" ]; then
-        echo "pkgconf.exe not found under $VCPKG_ROOT/installed (expected as an ffmpeg host dependency)" >&2
-        exit 1
-    fi
-    cp "$PKGCONF" "$VCPKG_ROOT/pkgconf.exe"
+# pkgconf is installed as a host tool, at a fixed path pyproject.toml
+# hardcodes (installed/<host-triplet>/tools/pkgconf/pkgconf.exe -- the host
+# triplet for a native x64 build defaults to x64-windows regardless of the
+# static-md *target* triplet above). Left in place rather than copied
+# elsewhere: it failed to run (exit 0xc0000135, DLL not found) once moved
+# out of its install directory, because Windows' DLL search order looks in
+# the executable's own directory first, and pkgconf.exe depends on a
+# sibling libpkgconf DLL that lives there.
+PKGCONF_EXE="$VCPKG_ROOT/installed/x64-windows/tools/pkgconf/pkgconf.exe"
+if [ ! -f "$PKGCONF_EXE" ]; then
+    echo "pkgconf.exe not found at $PKGCONF_EXE (expected as an ffmpeg host dependency)" >&2
+    exit 1
 fi
 
 echo "== Dependency prefix ready: $INSTALLED"
