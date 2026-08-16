@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-16
+
 ### Added
 - Binary wheels for Linux (x86_64), macOS (arm64), and Windows (AMD64),
   CPython 3.9–3.13, with statically linked LGPL FFmpeg and OpenCV core —
