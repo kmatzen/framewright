@@ -29,7 +29,98 @@ java -cp tla2tools.jar tlc2.TLC -config VideoReaderSeek.cfg VideoReaderSeek.tla
 All five are exhaustive (0 states left on queue). The spec now models the
 fixed code; the counterexamples below are what it found against the original.
 
-## What the counterexamples say
+## Start_time: a second, independent bug class
+
+The five configs above model `seek()`'s off-by-one and are unaffected by the
+container's `start_time` -- they all set `StartTimeTicks = 0`. A second,
+later bug lived in the same function but in a different part of the round
+trip: the keyframe path converts a frame index to a target timestamp and
+back (`TargetTicks` / `RecoveredIndex` in the spec, `VideoReader.cpp:816-825`
+and `:869-872` in the code) and, before the fix, did that conversion as if
+the stream's `start_time` were always zero. Real files commonly have a
+non-zero `start_time` that is not even a whole number of frame durations.
+
+`TicksPerFrame` and `StartTimeTicks` model the tick-level arithmetic
+precisely (including the C++'s `+0.5` rounding), rather than treating the
+frame-index/timestamp round trip as exact the way the base model does.
+`FixTargetStartTime` and `FixRecoveryStartTime` toggle the two halves of the
+fix independently, so the four configs below form a small truth table
+instead of a single before/after pair:
+
+| config | target folds in start_time | recovery folds in start_time | `PositionAccurate` |
+|---|---|---|---|
+| `StartTimeBug.cfg` | no | no | **violated**, depth 3 (matches the real pre-fix code) |
+| `StartTimeTargetOnly.cfg` | yes | no | **violated**, depth 3 |
+| `StartTimeRecoveryOnly.cfg` | no | yes | holds |
+| `StartTimeFixed.cfg` | yes | yes | **holds** (matches the real fix) |
+
+All four are exhaustive. `StartTimeBug.cfg` and `StartTimeTargetOnly.cfg`
+also violate `NeverOverruns` on the same trace -- unlike the off-by-one bug
+above (which the README's own `Overrun.cfg` result shows never runs ahead of
+the true position), this bug class *can* report a position past what has
+been decoded.
+
+**The counterexample**, identical for both violating configs (`NumFrames =
+12`, `Keyframes = {0, 6}`, `TicksPerFrame = 4`, `StartTimeTicks = 5` -- a
+start_time that is 1.25 frame durations, deliberately not frame-aligned,
+mirroring the real bug report's 0.083s offset):
+
+```
+open();  seek(4);          -> pos = 3, current = 4     (reports true, current AHEAD of pos)
+```
+
+`current_frame_` claims to be at frame 4, and the caller believes the seek
+succeeded, but the next `read()` actually returns frame 3.
+
+**Why fixing only the target half is not enough.** With `StartTimeTicks = 5`
+and `TicksPerFrame = 4`, requesting frame 4 has a true target timestamp of
+`5 + 4*4 = 21` ticks, which lands on keyframe 0 (`ActualPts(0) = 5 <= 21`;
+`ActualPts(6) = 29 > 21`). That part is fixed. But the still-buggy recovery
+then reads keyframe 0's real pts (5 ticks) as if start_time were zero:
+`RoundDiv(5, 4) = 1`, not `0` (`(2*5+4) \div (2*4) = 14 \div 8 = 1`). Landing
+on keyframe 0 (the frame just decoded to probe it) should make the *next*
+read frame `0 + 1 = 1`; instead, believing itself to already be at recovered
+frame `1`, the code starts the forward-scan one frame ahead of where it
+really is, at `pos=1, current=2` instead of `pos=1, current=1` -- the same
+shape of error as the original off-by-one bug's `NoPts` case, a wrong
+believed origin, just introduced by a different piece of unfixed arithmetic.
+The scan then advances both counters in lockstep up to `current = 4`, ending
+at `pos=3, current=4`, which is exactly the `current`-ahead-of-`pos` state
+TLC reports above: the one-frame error at the start never gets corrected,
+only carried forward.
+
+**Why fixing only the recovery half turns out to be harmless (here).** This
+is the interesting asymmetric result. If recovery is fixed but target is
+not, target still undershoots -- since `start_time > 0`, `n * TicksPerFrame`
+is always less than the true `start_time + n * TicksPerFrame`, so
+`KeyframeAtOrBeforeTicks` can only land on a keyframe at or *before* the one
+a correct target would reach (monotonicity: a smaller target timestamp never
+lands later). The recovery step, now correct, reports that earlier landing
+truthfully. `current_frame_` and the true position are equal at that point,
+so the plain index-based forward-scan loop -- unaffected by start_time,
+since it counts frames rather than timestamps -- simply decodes a few extra
+frames to reach the requested index. Correct end state, worse performance.
+This is exactly why the real fix touches both sites: an unfixed target isn't
+just "a little worse", it silently degrades keyframe seeking to scanning for
+some inputs, whereas an unfixed recovery is an outright correctness bug on
+its own.
+
+**Empirical confirmation.** `tests/test_video_reader.cpp` covers this against
+`seek_numbered_offset_start.mp4` -- the same numbered-luma fixture as the
+off-by-one bug's, but muxed with `-output_ts_offset 0.083` so `start_time` is
+non-zero without changing the frame count (plain `-itsoffset` was tried
+first; it gets absorbed into extra padding frames by the muxer's
+negative-timestamp handling instead of surfacing as a `start_time`, so it
+does not reproduce the bug). Reverting the fix and re-running fails with
+`seek(0)` from frame 1 returning `false`, matching the model's prediction
+that this bug class can turn a seek that should succeed into an outright
+failure, not just a wrong frame. A second test,
+`VideoReader getCurrentTimestamp is relative to frame 0, not container
+start_time`, covers the same root cause in `getCurrentTimestamp()`, which
+reported the raw container pts (frame 0 at `~start_time`, not `~0.0`)
+independently of `seek()`.
+
+## What the counterexamples say (the off-by-one bug)
 
 **1. The keyframe path is off by one** (`Faithful50.cfg`, the real threshold).
 
@@ -84,8 +175,11 @@ radius: callers get the wrong frame, not a wrong-sized or duplicated one.
 The model is generous to the code in three ways, so real behaviour can only be
 worse:
 
-- the frame-index ↔ timestamp round trip is exact, ignoring the `+ 0.5`
-  rounding and `av_rescale_q` truncation;
+- the `n * frame_duration` term of the frame-index ↔ timestamp round trip is
+  exact, ignoring `av_rescale_q`'s integer truncation. The `start_time` term
+  is *not* idealized this way -- `TicksPerFrame` / `StartTimeTicks` model it
+  exactly, including the C++'s `+ 0.5` rounding on recovery, per the
+  start_time section above;
 - the decoder emits exactly one frame per packet, ignoring reorder-buffer
   delay after `avcodec_flush_buffers()`. This assumption is *not* verified by
   the model, but it is now covered empirically: the `[seek]` cases also run
