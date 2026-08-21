@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-21
+
+### Fixed
+- `VideoReader::seek()`'s keyframe path (backward seeks, and forward jumps
+  more than 50 frames) ignored the container's `start_time` when converting
+  between frame index and timestamp, so on a stream muxed with a non-zero
+  `start_time` — common with real-world fragmented/muxed mp4 — every
+  keyframe-path seek landed 2-3 frames off the requested index, drifting
+  further with distance. Fixed by folding `start_time` into both the target
+  timestamp and the landing-position recovery, the same way ffmpeg's own
+  `-ss` does (#99)
+- `getCurrentTimestamp()` had the same root omission: it returned the raw
+  container pts, so frame 0 read back as `~start_time` instead of `~0.0`,
+  inconsistent with `getCurrentFrameNumber()` (#99)
+
 ## [0.3.0] - 2026-08-16
 
 ### Added
