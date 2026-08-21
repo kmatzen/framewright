@@ -15,22 +15,39 @@ jobs:
     runs-on: windows-latest
     name: Windows (MSVC)
     env:
-      # x-gha is vcpkg's native GitHub Actions cache binary source: without
-      # it, every run rebuilds FFmpeg + x264/x265 + OpenCV from source, each
-      # comfortably over an hour.
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      # A binary cache backend for vcpkg, without which every run rebuilds
+      # FFmpeg + x264/x265 + OpenCV from source, each comfortably over an
+      # hour. This used to be "x-gha", vcpkg's now-removed experimental
+      # GitHub Actions cache source -- it was silently falling back to no
+      # caching at all (vcpkg treats an unrecognized source as a hard parse
+      # error, not a fallback, so this took a captured job log to find: "The
+      # 'x-gha' binary caching backend has been removed"). vcpkg's stable
+      # replacement for GHA-native caching needs a NuGet feed (GitHub
+      # Packages) and its own token/permissions setup; "files" -- a plain
+      # local directory -- avoids that entirely and is paired below with
+      # actions/cache@v4 on that directory, the same mechanism (and cache
+      # backend) the WASM job already uses successfully for its deps tree.
+      # vcpkg content-hashes each cached package independently, so a cache
+      # from a slightly stale vcpkg.json still restores every package whose
+      # own inputs didn't change; the workflow doesn't need to keep this
+      # path in sync with anything.
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}\\.vcpkg-binary-cache,readwrite"
 
     steps:
       - uses: actions/checkout@v5
 
-      # Exposes ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN to later steps --
-      # vcpkg's x-gha source reads exactly these two env vars.
-      - name: Enable vcpkg GitHub Actions binary cache
-        uses: actions/github-script@v7
+      # Keyed on vcpkg.json so a manifest change (new/upgraded dependency)
+      # starts a fresh cache entry; restore-keys still falls back to the
+      # most recent cache after that, so packages unaffected by the change
+      # keep being restored instead of rebuilt. Not keyed on anything OS- or
+      # compiler-specific: this job only ever runs on windows-latest/MSVC.
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
         with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+          path: ${{ github.workspace }}\.vcpkg-binary-cache
+          key: vcpkg-binaries-v1-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-binaries-v1-
 
       # Ninja (single-config, so no per-config -C flags downstream) needs
       # cl.exe on PATH, which this action sets up.
@@ -87,8 +104,8 @@ jobs:
       # + x264 + x265 + OpenCV from source *twice*, once into a location
       # nothing else used. Let Configure's manifest-mode install be the only
       # one; it is a real (if first-time slow) build either way, but at
-      # least it happens once, and the x-gha binary cache makes every run
-      # after the first fast once it's warm.
+      # least it happens once, and the files binary cache above makes every
+      # run after the first fast once it's warm.
       # Examples off: compare_readers.cpp uses cv::imwrite/cv::VideoCapture
       # (imgcodecs/videoio), which are not part of the trimmed opencv4[core]
       # vcpkg feature set below (opencv4's *default* Windows feature set
