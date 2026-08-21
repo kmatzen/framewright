@@ -130,6 +130,9 @@ class VideoReader {
     int64_t getFrameCount() const { return frame_count_; }
 
     int64_t getCurrentFrameNumber() const { return current_frame_; }
+    /// Presentation time of the last frame returned, in seconds relative to
+    /// frame 0 (i.e. with the container's start_time subtracted out, the way
+    /// getCurrentFrameNumber() is already relative to frame 0).
     double getCurrentTimestamp() const { return current_timestamp_; }
 
     /// Get the file's pixel format (e.g. AV_PIX_FMT_YUV420P).
