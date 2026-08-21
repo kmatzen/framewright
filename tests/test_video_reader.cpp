@@ -221,6 +221,30 @@ TEST_CASE("VideoReader seek lands on the frame it reports (non-zero start_time)"
           "[reader][seek]") {
     checkSeekCases(fixtures + "/seek_numbered_offset_start.mp4");
 }
+
+// getCurrentTimestamp() must be relative to frame 0, like
+// getCurrentFrameNumber() is, not the raw container pts. Same content muxed
+// with and without a start_time offset must report the same timestamp for
+// the same frame; frame 0 in particular must read back ~0.0, not ~start_time.
+TEST_CASE("VideoReader getCurrentTimestamp is relative to frame 0, not container start_time",
+          "[reader][seek]") {
+    framewright::VideoReader zero, offset;
+    REQUIRE(zero.open(fixtures + "/seek_numbered.mp4"));
+    REQUIRE(offset.open(fixtures + "/seek_numbered_offset_start.mp4"));
+
+    cv::Mat f;
+    REQUIRE(offset.read(f));
+    CHECK_THAT(offset.getCurrentTimestamp(), Catch::Matchers::WithinAbs(0.0, 0.001));
+
+    REQUIRE(zero.read(f));
+    for (int i = 1; i < kSeekFixtureFrames; i++) {
+        INFO("frame " << i);
+        REQUIRE(zero.read(f));
+        REQUIRE(offset.read(f));
+        CHECK_THAT(zero.getCurrentTimestamp(),
+                   Catch::Matchers::WithinAbs(offset.getCurrentTimestamp(), 0.001));
+    }
+}
 #endif
 
 // Regression for #59: the decoder's reorder buffer must be fully drained at
