@@ -267,6 +267,29 @@ if(FRAMEWRIGHT_BUILD_TESTS)
             message(STATUS "seek B-frame fixture: DISABLED, reordering tests will not run")
         endif()
 
+        # Same content again, but with -output_ts_offset so the muxed
+        # stream's start_time is non-zero (as happens with real-world
+        # fragmented/muxed mp4s) without changing the frame count -- plain
+        # -itsoffset gets absorbed by avoid_negative_ts padding instead.
+        # Regression fixture for seek()'s keyframe path ignoring start_time
+        # when mapping between frame index and container timestamp.
+        execute_process(
+            COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi
+                -i "color=c=black:s=64x64:r=30:d=2,format=yuv420p,geq=lum='16+3*N':cb='128':cr='128'"
+                -c:v libx264 -qp 0 -g 30 -keyint_min 30 -sc_threshold 0 -pix_fmt yuv420p
+                -output_ts_offset 0.083 -avoid_negative_ts disabled
+                "${TEST_FIXTURES_DIR}/seek_numbered_offset_start.mp4"
+            RESULT_VARIABLE SEEK_OFFSET_FIXTURE_RESULT
+            OUTPUT_QUIET ERROR_QUIET
+        )
+        if(SEEK_OFFSET_FIXTURE_RESULT EQUAL 0)
+            set(HAVE_SEEK_OFFSET_FIXTURE TRUE)
+            message(STATUS "seek offset-start fixture: enabled")
+        else()
+            set(HAVE_SEEK_OFFSET_FIXTURE FALSE)
+            message(STATUS "seek offset-start fixture: DISABLED, start_time regression test will not run")
+        endif()
+
         # 10-bit HDR (BT.2020 + PQ) - only if libx265 is available
         execute_process(
             COMMAND ${FFMPEG_EXECUTABLE} -y -f lavfi -i "color=c=yellow:size=1920x1080:rate=30:duration=0.1"
@@ -378,6 +401,10 @@ if(FRAMEWRIGHT_BUILD_TESTS)
 
     if(HAVE_SEEK_BFRAME_FIXTURE)
         target_compile_definitions(framewright_tests PRIVATE HAVE_SEEK_BFRAME_FIXTURE)
+    endif()
+
+    if(HAVE_SEEK_OFFSET_FIXTURE)
+        target_compile_definitions(framewright_tests PRIVATE HAVE_SEEK_OFFSET_FIXTURE)
     endif()
 
     add_test(NAME framewright_tests COMMAND framewright_tests)
