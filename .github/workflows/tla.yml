@@ -40,7 +40,13 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
-          for cfg in VideoReaderSeek NoPts Overrun FailedSeek Faithful50; do
+          # StartTimeBug and StartTimeTargetOnly are deliberately excluded:
+          # they document that PositionAccurate is *violated* pre-fix (see
+          # README.md), so a green run of THEM would mean the model or the
+          # code regressed. Only configs that must stay violation-free go in
+          # this loop.
+          for cfg in VideoReaderSeek NoPts Overrun FailedSeek Faithful50 \
+                     StartTimeFixed StartTimeRecoveryOnly; do
             echo "::group::$cfg"
             java -XX:+UseParallelGC -cp "$GITHUB_WORKSPACE/tla2tools.jar" tlc2.TLC \
               -nowarning -config "$cfg.cfg" VideoReaderSeek.tla > "/tmp/$cfg.out" 2>&1
