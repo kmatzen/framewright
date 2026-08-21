@@ -813,9 +813,16 @@ bool VideoReader::seek(int64_t frame_number) {
             return false;
         }
 
+        // Timestamps in the file are relative to the stream's start_time, not
+        // to zero (a non-zero start_time is common with fragmented/muxed
+        // mp4). Ignoring it here would target the wrong absolute position --
+        // the same offset ffmpeg's own -ss folds in before seeking.
+        const int64_t stream_start =
+            (stream->start_time != AV_NOPTS_VALUE) ? stream->start_time : 0;
+
         const double frame_duration = av_q2d(av_inv_q(seek_fps));
         const int64_t target_ts =
-            av_rescale_q(frame_number, av_inv_q(seek_fps), stream->time_base);
+            stream_start + av_rescale_q(frame_number, av_inv_q(seek_fps), stream->time_base);
 
         auto seek_to_keyframe = [&]() -> bool {
             int ret =
@@ -859,7 +866,10 @@ bool VideoReader::seek(int64_t frame_number) {
             return false;
         }
 
-        double time_pos = frame_->pts * av_q2d(stream->time_base);
+        // Subtract the same start_time offset back out so time_pos is
+        // relative to frame 0, matching the frame_number space target_ts was
+        // computed in above.
+        double time_pos = (frame_->pts - stream_start) * av_q2d(stream->time_base);
         int64_t keyframe_index = static_cast<int64_t>(time_pos / frame_duration + 0.5);
 
         if (keyframe_index >= frame_number) {

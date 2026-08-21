@@ -212,6 +212,17 @@ TEST_CASE("VideoReader seek lands on the frame it reports (B-frames)", "[reader]
 }
 #endif
 
+#ifdef HAVE_SEEK_OFFSET_FIXTURE
+// Regression: seek()'s keyframe path mapped frame_number <-> container
+// timestamp without accounting for a non-zero stream start_time, so on a
+// stream muxed with an offset (common with real-world fragmented/muxed mp4)
+// every keyframe-path seek landed 2-3 frames off and drifted with distance.
+TEST_CASE("VideoReader seek lands on the frame it reports (non-zero start_time)",
+          "[reader][seek]") {
+    checkSeekCases(fixtures + "/seek_numbered_offset_start.mp4");
+}
+#endif
+
 // Regression for #59: the decoder's reorder buffer must be fully drained at
 // EOF. Sending a second flush packet returns AVERROR_EOF, and treating that as
 // fatal used to strand every buffered frame but the first -- silently costing
