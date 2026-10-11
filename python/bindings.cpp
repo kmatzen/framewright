@@ -61,6 +61,15 @@ static py::object mat_to_numpy_owned(const cv::Mat& mat, py::capsule base) {
 
 // numpy array -> cv::Mat (zero-copy)
 static cv::Mat numpy_to_mat(py::array arr) {
+    // H2: a zero-copy cv::Mat requires the buffer to be C-contiguous. A
+    // non-contiguous array (e.g. a transposed or strided view) would be
+    // reinterpreted with a wrong stride and read garbage. Reject it loudly
+    // rather than silently corrupting the frame.
+    if (!arr.request().is_c_contiguous()) {
+        throw py::value_error("Expected a C-contiguous array; got a non-contiguous "
+                              "view. Call np.ascontiguousarray(arr) first.");
+    }
+
     py::buffer_info buf = arr.request();
 
     if (buf.ndim != 3 || buf.shape[2] != 3) {

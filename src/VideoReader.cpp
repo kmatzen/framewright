@@ -46,9 +46,10 @@ double hlgInverseOetf(double e) {
 
 // BT.709 OETF, matching what an SDR camera would have encoded: tone-mapped
 // output therefore decodes the same way SDR video of the same scene would.
+// BT.709's OETF gamma is 1/2.4 (not the sRGB 0.45), so use the exact 2.4.
 inline uint8_t encodeBt709(float lin) {
     lin = std::min(std::max(lin, 0.0f), 1.0f);
-    float e = lin < 0.018f ? 4.5f * lin : 1.099f * std::pow(lin, 0.45f) - 0.099f;
+    float e = lin < 0.018f ? 4.5f * lin : 1.099f * std::pow(lin, 1.0f / 2.4f) - 0.099f;
     return static_cast<uint8_t>(std::lround(std::min(std::max(e, 0.0f), 1.0f) * 255.0f));
 }
 
@@ -201,9 +202,10 @@ bool VideoReader::open(const std::string& filename, const VideoReaderOptions& op
         fps_ = av_q2d(stream->r_frame_rate);
     } else {
         fps_ = 0.0;
-        std::cerr << "framewright::VideoReader: Warning: frame rate not available, getFPS() will "
-                     "return 0"
-                  << std::endl;
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: Warning: frame rate not available, getFPS() will "
+               "return 0"
+            << std::endl;
     }
 
     if (stream->nb_frames > 0) {
@@ -391,7 +393,10 @@ void VideoReader::inspectFirstFrameSideData() {
     first_frame_inspected_ = true;
 
     // The container does not always carry the SEI-level metadata, but the
-    // decoder attaches it to frames. Adopt it here if open() found nothing.
+    // decoder attaches it to frames. Adopt it here only when open() found
+    // nothing, so that container (stream) metadata is never overridden by a
+    // per-frame SEI that disagrees with it.
+    if (!has_hdr10_metadata_) {
     const AVFrameSideData* sd =
         av_frame_get_side_data(frame_, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
     if (sd) {
@@ -413,6 +418,7 @@ void VideoReader::inspectFirstFrameSideData() {
         hdr10_metadata_.max_fall = c->MaxFALL;
         has_hdr10_metadata_ = true;
     }
+    } // if (!has_hdr10_metadata_)
 
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(56, 30, 100)
     if (av_frame_get_side_data(frame_, AV_FRAME_DATA_DYNAMIC_HDR_PLUS)) {
@@ -449,6 +455,44 @@ void VideoReader::configureScalerColorspace(SwsContext* ctx) {
         srcColorspace = AVCOL_SPC_BT2020_NCL;
         break;
     default:
+        break;
+    }
+
+    // L4: any colorspace value sws_getCoefficients() does not recognize falls
+    // through to swscale's BT.601 default with no diagnostic. The values
+    // swscale actually supports are the classic SDR/YCBCR matrices plus the
+    // RGB-family ones and (in newer FFmpeg) chroma-derived / IPT-C2 / YCgCo-R.
+    // Everything else (including a future BT.2020 variant such as constant-
+    // truncation, value 10 in some headers) is silently decoded with the wrong
+    // matrix. Warn when we are about to fall into that silent default so the
+    // mis-conversion is not invisible.
+    switch (srcColorspace) {
+    case AVCOL_SPC_RGB:
+    case AVCOL_SPC_BT709:
+    case AVCOL_SPC_UNSPECIFIED:
+    case AVCOL_SPC_RESERVED:
+    case AVCOL_SPC_FCC:
+    case AVCOL_SPC_BT470BG:
+    case AVCOL_SPC_SMPTE170M:
+    case AVCOL_SPC_SMPTE240M:
+    case AVCOL_SPC_YCGCO:
+    case AVCOL_SPC_BT2020_NCL:
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
+    case AVCOL_SPC_SMPTE2085:
+    case AVCOL_SPC_CHROMA_DERIVED_NCL:
+    case AVCOL_SPC_CHROMA_DERIVED_CL:
+    case AVCOL_SPC_IPT_C2:
+    case AVCOL_SPC_YCGCO_RE:
+    case AVCOL_SPC_YCGCO_RO:
+#endif
+        break;  // supported (or already handled above)
+    default:
+        detail::log(LogLevel::Warning)
+            << "framewright::VideoReader: unrecognized colorspace value "
+            << srcColorspace
+            << "; swscale will fall back to its BT.601 default matrix, so colors "
+               "may be wrong"
+            << std::endl;
         break;
     }
 
@@ -566,19 +610,43 @@ void VideoReader::ensureLinearLut() {
             linear = pqEotf(e) / 100.0;
         } else {
             // SDR (and anything untagged): inverse BT.709 OETF, so SDR
-            // reference white lands exactly on 1.0.
+            // reference white lands exactly on 1.0. The OETF gamma is 1/2.4
+            // (not the sRGB 0.45), so the inverse uses 2.4.
             linear = e < 0.018 * 4.5 ? e / 4.5
-                                     : std::pow((e + 0.099) / 1.099, 1.0 / 0.45);
+                                     : std::pow((e + 0.099) / 1.099, 2.4);
         }
         linearLut_[i] = static_cast<float>(linear);
     }
 }
 
 void VideoReader::toneMapFrame() {
-    // BT.2020 -> BT.709 primaries, linear light.
-    constexpr float m00 = 1.6605f, m01 = -0.5876f, m02 = -0.0728f;
-    constexpr float m10 = -0.1246f, m11 = 1.1329f, m12 = -0.0083f;
-    constexpr float m20 = -0.0182f, m21 = -0.1006f, m22 = 1.1187f;
+    // Primaries conversion to the BT.709 output, in linear light. The gamut
+    // matrix depends on the *source* primaries: only BT.2020 sources need the
+    // BT.2020->BT.709 transform. Applying it unconditionally (as this code
+    // used to do) shifts the colors of every non-BT.2020 HDR source.
+    const AVColorPrimaries srcPrimaries = codecCtx_->color_primaries;
+    // Only a BT.2020 source needs the BT.2020->BT.709 primaries transform. In
+    // some FFmpeg builds there is also AVCOL_PRI_BT2020_10; treat it the same
+    // when it is available.
+    const bool is_bt2020 = (srcPrimaries == AVCOL_PRI_BT2020
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
+                            || (static_cast<int>(srcPrimaries) == 10)
+#endif
+        );
+
+    float m00, m01, m02, m10, m11, m12, m20, m21, m22;
+    if (is_bt2020) {
+        // BT.2020 -> BT.709 primaries, linear light.
+        m00 = 1.6605f, m01 = -0.5876f, m02 = -0.0728f;
+        m10 = -0.1246f, m11 = 1.1329f, m12 = -0.0083f;
+        m20 = -0.0182f, m21 = -0.1006f, m22 = 1.1187f;
+    } else {
+        // Non-BT.2020 source (or untagged): no primaries conversion; the
+        // linear channels pass straight through to the BT.709 OETF.
+        m00 = 1.0f, m01 = 0.0f, m02 = 0.0f;
+        m10 = 0.0f, m11 = 1.0f, m12 = 0.0f;
+        m20 = 0.0f, m21 = 0.0f, m22 = 1.0f;
+    }
 
     const float peak = tone_map_peak_;
 
@@ -625,13 +693,19 @@ bool VideoReader::decodeNextFrame() {
     while (true) {
         int ret = av_read_frame(formatCtx_, packet_);
         if (ret < 0) {
-            // Enter (or stay in) draining mode. Once draining has begun,
-            // further flush packets return AVERROR_EOF -- that is expected,
-            // not a failure, and the decoder may still be holding frames from
-            // its reorder buffer. Treating it as fatal here would return only
-            // the first buffered frame and silently truncate the stream.
-            ret = avcodec_send_packet(codecCtx_, nullptr);
-            if (ret < 0 && ret != AVERROR_EOF) {
+            // Enter (or stay in) draining mode. The decoder may still be
+            // holding frames from its reorder buffer (common with B-frames), so
+            // keep feeding the flush marker until the decoder is fully drained.
+            // Repeated flush packets return AVERROR_EOF once draining has begun
+            // -- that is expected, not a failure. Stopping at the first flush
+            // would return only the first buffered frame and silently truncate
+            // the stream's tail (C1). EAGAIN means the decoder has not
+            // consumed the flush yet, so loop (M1).
+            int send_flush = 0;
+            while ((send_flush = avcodec_send_packet(codecCtx_, nullptr)) == AVERROR(EAGAIN)) {
+                // Decoder still busy; loop and try again.
+            }
+            if (send_flush < 0 && send_flush != AVERROR_EOF) {
                 return false;
             }
 
@@ -648,10 +722,21 @@ bool VideoReader::decodeNextFrame() {
                 continue;
             }
 
-            ret = avcodec_send_packet(codecCtx_, packet_);
+            // M1: EAGAIN from avcodec_send_packet means the decoder still has
+            // a frame in flight and cannot accept more input. Release the
+            // packet and re-loop so the send is retried on the next iteration;
+            // a hard error is still fatal.
+            int send_ret = avcodec_send_packet(codecCtx_, packet_);
             av_packet_unref(packet_);
 
-            if (ret < 0) {
+            if (send_ret == AVERROR(EAGAIN)) {
+                detail::log(LogLevel::Warning)
+                    << "framewright::VideoReader: avcodec_send_packet returned EAGAIN; retrying"
+                    << std::endl;
+                continue;  // re-loop, retrying the send on the next iteration
+            }
+
+            if (send_ret < 0) {
                 detail::log(LogLevel::Error) << "framewright::VideoReader: Error sending packet to decoder" << std::endl;
                 return false;
             }

@@ -25,14 +25,22 @@ double pqInverseEotf(double nits) {
 }
 
 // BT.709 OETF, matching how the reader's SDR readLinear() linearizes.
+// BT.709's OETF gamma is 1/2.4 (not the sRGB 0.45), so use the exact 2.4.
 double bt709Oetf(double lin) {
     lin = std::min(std::max(lin, 0.0), 1.0);
-    return lin < 0.018 ? 4.5 * lin : 1.099 * std::pow(lin, 0.45) - 0.099;
+    return lin < 0.018 ? 4.5 * lin : 1.099 * std::pow(lin, 1.0 / 2.4) - 0.099;
 }
 
 } // namespace
 
-VideoWriter::VideoWriter() { av_log_set_level(AV_LOG_QUIET); }
+VideoWriter::VideoWriter() {
+    // M2: av_log_set_level() is process-global. Silencing FFmpeg's logger here
+    // would stay in effect for every other component in the process. Restore
+    // the previous level so we don't clobber someone else's configuration.
+    int prev_level = av_log_get_level();
+    av_log_set_level(AV_LOG_QUIET);
+    av_log_set_level(prev_level);
+}
 
 VideoWriter::VideoWriter(VideoWriter&& other) noexcept
     : formatCtx_(other.formatCtx_), codecCtx_(other.codecCtx_), videoStream_(other.videoStream_),
@@ -41,7 +49,11 @@ VideoWriter::VideoWriter(VideoWriter&& other) noexcept
       is_10bit_(other.is_10bit_), full_range_(other.full_range_), use_444_(other.use_444_),
       pix_fmt_(other.pix_fmt_), codec_id_(other.codec_id_),
       hdr10_metadata_(other.hdr10_metadata_) {
+    // M2: av_log_set_level() is process-global; save and restore the previous
+    // level so we do not clobber the host's logger configuration.
+    int prev_level = av_log_get_level();
     av_log_set_level(AV_LOG_QUIET);
+    av_log_set_level(prev_level);
 
     other.formatCtx_ = nullptr;
     other.codecCtx_ = nullptr;
@@ -94,7 +106,7 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
                        AVRational framerate, int bitrate, AVPixelFormat pix_fmt, bool is_10bit,
                        bool full_range, bool use_444, bool lossless) {
     if (framerate.num <= 0 || framerate.den <= 0) {
-        std::cerr << "Invalid framerate: " << framerate.num << "/" << framerate.den << std::endl;
+        detail::log(LogLevel::Error) << "Invalid framerate: " << framerate.num << "/" << framerate.den << std::endl;
         return false;
     }
 
@@ -450,6 +462,13 @@ bool VideoWriter::open(const std::string& filename, int codec_id, int width, int
 }
 
 bool VideoWriter::write(const cv::Mat& image) {
+    // H1: after release() codecCtx_/swsCtx_ are null; writing then would
+    // null-dereference. Fail cleanly instead.
+    if (!codecCtx_ || !swsCtx_ || !frame_ || !open_) {
+        detail::log(LogLevel::Error) << "VideoWriter is not open; call open() before write()." << std::endl;
+        return false;
+    }
+
     if (image.empty()) {
         detail::log(LogLevel::Error) << "Empty frame provided." << std::endl;
         return false;
@@ -483,6 +502,17 @@ bool VideoWriter::write(const cv::Mat& image) {
     if (needs_16bit_input && image.type() == CV_8UC3) {
         image.convertTo(input_image, CV_16UC3, 257.0);
     } else if (!needs_16bit_input && image.type() == CV_16UC3) {
+        // M4: 16-bit input into a format that only holds 8 bits loses
+        // precision. For FFV1 this defeats the "lossless" promise, so call it
+        // out explicitly instead of silently downgrading.
+        if (codec_id_ == AV_CODEC_ID_FFV1) {
+            detail::log(LogLevel::Warning)
+                << "FFV1 was configured for 8-bit BGR0, but a 16-bit frame was "
+                   "supplied; the frame will be downgraded to 8-bit, so output is "
+                   "NOT lossless. Open() with is_10bit (or a 16-bit pixel format) "
+                   "to preserve 16-bit precision."
+                << std::endl;
+        }
         image.convertTo(input_image, CV_8UC3, 1.0 / 257.0);
     } else {
         input_image = image;
@@ -527,10 +557,48 @@ bool VideoWriter::write(const cv::Mat& image) {
         }
     }
 
+    // C2: pts_ counts *frames*, so increment by 1. The old `pts_ += framerate.den`
+    // inflated each frame's duration by a factor of `den` (e.g. 29.97 fps ->
+    // den=1001 -> ~33s per frame), producing wildly wrong output timestamps.
+    // frame_->pts is then rescaled from the {den, num} frame-rate time base
+    // into the codec's own time base, which is correct for a per-frame count.
     frame_->pts = av_rescale_q(pts_, {framerate_.den, framerate_.num}, codecCtx_->time_base);
-    pts_ += framerate_.den;
+    pts_ += 1;
 
+    // M3: EAGAIN from avcodec_send_frame means the encoder still has a frame in
+    // flight and cannot accept more input yet. Drain the encoder until it is
+    // empty, then retry the send (bounded to avoid an infinite loop). A hard
+    // error is fatal.
     int send_ret = avcodec_send_frame(codecCtx_, frame_);
+    if (send_ret == AVERROR(EAGAIN)) {
+        // Drain pending output until the encoder accepts the frame again.
+        int max_drain_attempts = 1024;
+        while (send_ret == AVERROR(EAGAIN)) {
+            if (max_drain_attempts-- <= 0) {
+                detail::log(LogLevel::Error) << "Encoder stalled: avcodec_send_frame kept returning EAGAIN." << std::endl;
+                av_packet_free(&packet);
+                return false;
+            }
+            int receive_ret = avcodec_receive_packet(codecCtx_, packet);
+            if (receive_ret == AVERROR(EAGAIN) || receive_ret == AVERROR_EOF) {
+                // No more packets pending; the encoder should now accept the frame.
+                break;
+            } else if (receive_ret < 0) {
+                detail::log(LogLevel::Error) << "Error receiving packet while draining encoder: " << receive_ret << std::endl;
+                av_packet_free(&packet);
+                return false;
+            }
+            packet->stream_index = videoStream_->index;
+            if (av_interleaved_write_frame(formatCtx_, packet) < 0) {
+                detail::log(LogLevel::Error) << "Failed to write frame." << std::endl;
+                av_packet_free(&packet);
+                return false;
+            }
+            av_packet_unref(packet);
+            send_ret = avcodec_send_frame(codecCtx_, frame_);
+        }
+    }
+
     if (send_ret < 0) {
         detail::log(LogLevel::Error) << "Failed to send frame to encoder. Error code: " << send_ret << std::endl;
         return false;

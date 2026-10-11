@@ -498,9 +498,13 @@ cv::Vec3b toneMap(const cv::Vec3w& bgr16, bool hlg) {
     double r709 =  1.6605 * r - 0.5876 * g - 0.0728 * b;
     double g709 = -0.1246 * r + 1.1329 * g - 0.0083 * b;
     double b709 = -0.0182 * r - 0.1006 * g + 1.1187 * b;
+    // The BT.2020->BT.709 gamut matrix above applies because the HDR fixtures
+    // carry BT.2020 primaries (the reader gates the gamut on the source
+    // primaries; a non-BT.2020 source would skip it entirely).
     auto enc = [](double x) -> uint8_t {
         x = std::min(std::max(x, 0.0), 1.0);
-        double e = x < 0.018 ? 4.5 * x : 1.099 * std::pow(x, 0.45) - 0.099;
+        // BT.709 OETF uses gamma 1/2.4 (not the sRGB 0.45).
+        double e = x < 0.018 ? 4.5 * x : 1.099 * std::pow(x, 1.0 / 2.4) - 0.099;
         return static_cast<uint8_t>(std::lround(std::min(std::max(e, 0.0), 1.0) * 255.0));
     };
     return {enc(b709), enc(g709), enc(r709)};
