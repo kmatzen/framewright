@@ -477,7 +477,7 @@ void VideoReader::configureScalerColorspace(SwsContext* ctx) {
     case AVCOL_SPC_SMPTE240M:
     case AVCOL_SPC_YCGCO:
     case AVCOL_SPC_BT2020_NCL:
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 29, 100)
     case AVCOL_SPC_SMPTE2085:
     case AVCOL_SPC_CHROMA_DERIVED_NCL:
     case AVCOL_SPC_CHROMA_DERIVED_CL:
@@ -629,7 +629,7 @@ void VideoReader::toneMapFrame() {
     // some FFmpeg builds there is also AVCOL_PRI_BT2020_10; treat it the same
     // when it is available.
     const bool is_bt2020 = (srcPrimaries == AVCOL_PRI_BT2020
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 29, 100)
                             || (static_cast<int>(srcPrimaries) == 10)
 #endif
         );
